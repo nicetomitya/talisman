@@ -1,0 +1,1219 @@
+// Талисман P0 — модель данных.
+// Деньги: целые копейки (поля *Kop). Страховая сумма — целые рубли (sumInsuredRub), т.к. может превышать Int в копейках.
+// Погодные величины: целые сотые доли (valueX100).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────── Пользователи, сессии, организации ─────────────
+
+enum UserKind {
+  CLIENT
+  STAFF
+}
+
+enum AccessStatus {
+  ACTIVE
+  BLOCKED
+}
+
+model User {
+  id               String       @id @default(uuid()) @db.Uuid
+  email            String       @unique
+  name             String
+  phone            String?
+  kind             UserKind
+  passwordHash     String
+  emailVerifiedAt  DateTime?
+  status           AccessStatus @default(ACTIVE)
+  totpSecret       String?
+  totpEnabled      Boolean      @default(false)
+  failedLogins     Int          @default(0)
+  lockedUntil      DateTime?
+  isDemo           Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  version          Int          @default(1)
+
+  memberships   Membership[]
+  sessions      Session[]
+  requests      InsuranceRequest[]
+  consents      Consent[]
+  notifications Notification[]
+  savedObjects  SavedObject[]
+}
+
+model Session {
+  id             String    @id @default(uuid()) @db.Uuid
+  tokenHash      String    @unique
+  userId         String    @db.Uuid
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeOrgId    String?   @db.Uuid
+  mfaVerifiedAt  DateTime?
+  isDemoSwitch   Boolean   @default(false)
+  ip             String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  expiresAt      DateTime
+  revokedAt      DateTime?
+
+  @@index([userId])
+}
+
+enum OneTimeTokenType {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
+model OneTimeToken {
+  id        String           @id @default(uuid()) @db.Uuid
+  type      OneTimeTokenType
+  tokenHash String           @unique
+  userId    String           @db.Uuid
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+}
+
+model DemoMail {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  toEmail   String
+  subject   String
+  body      String
+  category  String   @default("SERVICE")
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model RateLimit {
+  key         String   @id
+  windowStart DateTime
+  count       Int
+}
+
+enum OrgType {
+  AGENCY
+  CARRIER
+  PLATFORM
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+model Organization {
+  id                 String             @id @default(uuid()) @db.Uuid
+  type               OrgType
+  name               String
+  legalName          String?
+  inn                String?
+  status             AccessStatus       @default(ACTIVE)
+  blockReason        String?
+  verificationStatus VerificationStatus @default(PENDING)
+  verifiedUntil      DateTime?
+  description        String?
+  specialization     String?
+  territory          String?
+  languages          String?
+  responseMode       String?
+  licenseNote        String?
+  isDemo             Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  version            Int                @default(1)
+
+  memberships   Membership[]
+  verifications OrgVerification[]
+}
+
+enum MemberRole {
+  AGENCY_OWNER
+  AGENT
+  CARRIER_REP
+  ADMIN
+  SUPPORT
+}
+
+model Membership {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id])
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  role           MemberRole
+  status         AccessStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, organizationId, role])
+}
+
+model OrgVerification {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @db.Uuid
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  status         VerificationStatus
+  reviewerId     String?            @db.Uuid
+  note           String?
+  validUntil     DateTime?
+  createdAt      DateTime           @default(now())
+}
+
+enum MandateStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+model Mandate {
+  id            String        @id @default(uuid()) @db.Uuid
+  agencyOrgId   String        @db.Uuid
+  carrierOrgId  String        @db.Uuid
+  productId     String        @db.Uuid
+  territory     String        @default("RU")
+  validFrom     DateTime
+  validTo       DateTime
+  status        MandateStatus @default(ACTIVE)
+  revokeReason  String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([agencyOrgId])
+}
+
+// ───────────── Каталог, тарифы, анкеты ─────────────
+
+enum ProductKind {
+  CLASSIC
+  EVENT
+}
+
+enum ProductStatus {
+  DRAFT
+  SUBMITTED_TO_CARRIER
+  CARRIER_APPROVED
+  PLATFORM_CHECKED
+  PUBLISHED
+  SUSPENDED
+  ARCHIVED
+}
+
+model Product {
+  id              String        @id @default(uuid()) @db.Uuid
+  code            String        @unique
+  kind            ProductKind
+  title           String
+  summary         String
+  carrierOrgId    String        @db.Uuid
+  proposedByOrgId String?       @db.Uuid
+  distributorOrgId String?      @db.Uuid
+  status          ProductStatus @default(DRAFT)
+  instantQuote    Boolean       @default(false)
+  auctionAllowed  Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  version         Int           @default(1)
+
+  versions ProductVersion[]
+  tariffs  TariffVersion[]
+}
+
+model ProductVersion {
+  id          String    @id @default(uuid()) @db.Uuid
+  productId   String    @db.Uuid
+  product     Product   @relation(fields: [productId], references: [id])
+  version     Int
+  terms       Json
+  status      ProductStatus @default(DRAFT)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([productId, version])
+}
+
+enum TariffStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+model TariffVersion {
+  id           String       @id @default(uuid()) @db.Uuid
+  productId    String       @db.Uuid
+  product      Product      @relation(fields: [productId], references: [id])
+  carrierOrgId String       @db.Uuid
+  version      Int
+  source       String       @default("DEMO_GRID")
+  rules        Json
+  validFrom    DateTime
+  validTo      DateTime
+  status       TariffStatus @default(ACTIVE)
+  createdAt    DateTime     @default(now())
+
+  @@unique([productId, carrierOrgId, version])
+}
+
+model CapacityPool {
+  id            String   @id @default(uuid()) @db.Uuid
+  carrierOrgId  String   @db.Uuid
+  productCode   String
+  limitCount    Int
+  reservedCount Int      @default(0)
+  usedCount     Int      @default(0)
+  version       Int      @default(1)
+  updatedAt     DateTime @updatedAt
+
+  @@unique([carrierOrgId, productCode])
+}
+
+model FormSchema {
+  id          String   @id @default(uuid()) @db.Uuid
+  country     String   @default("RU")
+  productCode String
+  carrierOrgId String? @db.Uuid
+  version     Int
+  fields      Json
+  createdAt   DateTime @default(now())
+
+  @@unique([country, productCode, version])
+}
+
+model SalesSuspension {
+  id        String    @id @default(uuid()) @db.Uuid
+  scope     String // CARRIER | PRODUCT | TERRITORY | DATA_SOURCE
+  target    String
+  reason    String
+  active    Boolean   @default(true)
+  createdBy String    @db.Uuid
+  createdAt DateTime  @default(now())
+  liftedAt  DateTime?
+}
+
+// ───────────── Заявки ─────────────
+
+enum RequestStatus {
+  DRAFT
+  NEEDS_INFO
+  OPEN
+  SELECTION
+  CHECKOUT
+  COMPLETED
+  CANCELLED
+}
+
+model InsuranceRequest {
+  id              String        @id @default(uuid()) @db.Uuid
+  clientId        String        @db.Uuid
+  client          User          @relation(fields: [clientId], references: [id])
+  productCode     String
+  kind            ProductKind
+  status          RequestStatus @default(DRAFT)
+  title           String
+  freeText        String?
+  formSchemaId    String        @db.Uuid
+  data            Json          @default("{}")
+  confirmed       Json          @default("{}")
+  territory       String?
+  currentVersion  Int           @default(0)
+  renewalOfPolicyId String?     @db.Uuid
+  publishedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  version         Int           @default(1)
+
+  versions RequestVersion[]
+  @@index([clientId])
+  @@index([status])
+}
+
+model RequestVersion {
+  id             String           @id @default(uuid()) @db.Uuid
+  requestId      String           @db.Uuid
+  request        InsuranceRequest @relation(fields: [requestId], references: [id])
+  version        Int
+  data           Json
+  schemaSnapshot Json
+  publicData     Json
+  fingerprint    String
+  createdAt      DateTime         @default(now())
+
+  @@unique([requestId, version])
+}
+
+// ───────────── Торги и предложения ─────────────
+
+enum AuctionStatus {
+  PREPARED
+  OPEN
+  EXTENDED
+  PAUSED
+  CLOSED
+}
+
+model Auction {
+  id                 String        @id @default(uuid()) @db.Uuid
+  requestId          String        @db.Uuid
+  requestVersion     Int
+  status             AuctionStatus @default(PREPARED)
+  opensAt            DateTime
+  closesAt           DateTime
+  originalClosesAt   DateTime
+  extensionTotalSec  Int           @default(0)
+  minStepKop         Int           @default(10000)
+  visibility         String        @default("CLIENT_OPEN_AGENT_RANK")
+  eligibleOrgIds     Json          @default("[]")
+  closedAt           DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  version            Int           @default(1)
+
+  @@unique([requestId, requestVersion])
+}
+
+enum QuoteStatus {
+  DRAFT
+  PUBLISHED
+  REPLACED
+  WITHDRAWN
+  EXPIRED
+  SELECTED
+}
+
+model Quote {
+  id                  String      @id @default(uuid()) @db.Uuid
+  requestId           String      @db.Uuid
+  requestVersion      Int
+  auctionId           String?     @db.Uuid
+  agencyOrgId         String?     @db.Uuid
+  carrierOrgId        String      @db.Uuid
+  productId           String      @db.Uuid
+  agentUserId         String?     @db.Uuid
+  status              QuoteStatus @default(DRAFT)
+  seq                 Int         @default(1)
+  replacesQuoteId     String?     @db.Uuid
+  isPreliminary       Boolean     @default(false)
+  coverageFingerprint String
+  terms               Json
+  premiumKop          Int
+  feesKop             Int         @default(0)
+  discountKop         Int         @default(0)
+  discountPayer       String?
+  totalKop            Int
+  sourceType          String // TARIFF_GRID | CARRIER_QUOTE | EVENT_TARIFF
+  carrierQuoteId      String?
+  tariffVersionId     String?     @db.Uuid
+  commissionPct       Int         @default(1500) // базисные пункты *100: 1500 = 15.00%
+  inspectionRequired  Boolean     @default(false)
+  expiresAt           DateTime
+  withdrawReason      String?
+  createdVia          String      @default("MANUAL") // MANUAL | CONFIRM | AUTO | INSTANT
+  publishedAt         DateTime?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  version             Int         @default(1)
+
+  @@index([requestId, status])
+  @@index([agencyOrgId])
+}
+
+model QuoteEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  quoteId   String   @db.Uuid
+  type      String
+  data      Json     @default("{}")
+  createdAt DateTime @default(now())
+}
+
+// ───────────── Оформление ─────────────
+
+enum CheckoutStatus {
+  RESERVED
+  CHECKING
+  DOCUMENTS
+  CLIENT_CONFIRMATION
+  PAYMENT
+  AWAITING_CARRIER
+  COMPLETED
+  CANCELLED
+}
+
+model Checkout {
+  id                   String         @id @default(uuid()) @db.Uuid
+  requestId            String         @db.Uuid
+  requestVersion       Int
+  quoteId              String         @db.Uuid
+  quoteSeq             Int
+  clientId             String         @db.Uuid
+  agencyOrgId          String?        @db.Uuid
+  carrierOrgId         String         @db.Uuid
+  status               CheckoutStatus @default(RESERVED)
+  reservationExpiresAt DateTime
+  snapshot             Json
+  acknowledgements     Json           @default("{}")
+  cancelReason         String?
+  selectionReason      String?
+  carrierFinalQuoteId  String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  version              Int            @default(1)
+
+  @@index([clientId])
+  @@index([requestId])
+}
+
+model SignatureSession {
+  id           String    @id @default(uuid()) @db.Uuid
+  checkoutId   String    @db.Uuid
+  userId       String    @db.Uuid
+  sessionId    String    @db.Uuid
+  docHashes    Json
+  codeHash     String
+  expiresAt    DateTime
+  attempts     Int       @default(0)
+  maxAttempts  Int       @default(5)
+  status       String    @default("PENDING") // PENDING | VERIFIED | FAILED | EXPIRED
+  method       String    @default("DEMO_OTP_EMAIL")
+  deliveryInfo Json      @default("{}")
+  verifiedAt   DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+// ───────────── Документы и согласия ─────────────
+
+enum DocStatus {
+  QUARANTINE
+  CLEAN
+  REJECTED
+  GENERATED
+}
+
+model Document {
+  id            String    @id @default(uuid()) @db.Uuid
+  kind          String
+  title         String
+  ownerUserId   String?   @db.Uuid
+  organizationId String?  @db.Uuid
+  requestId     String?   @db.Uuid
+  checkoutId    String?   @db.Uuid
+  policyId      String?   @db.Uuid
+  claimId       String?   @db.Uuid
+  version       Int       @default(1)
+  seriesId      String    @db.Uuid
+  supersededById String?  @db.Uuid
+  createdById   String?   @db.Uuid
+  mime          String
+  sizeBytes     Int
+  sha256        String
+  storageKey    String
+  status        DocStatus
+  scanNote      String?
+  isDemo        Boolean   @default(true)
+  externalOrigin String?
+  clauses       Json?
+  extracted     Json?
+  signedAt      DateTime?
+  signedBy      String?
+  signatureInfo Json?
+  createdAt     DateTime  @default(now())
+
+  @@index([requestId])
+  @@index([checkoutId])
+  @@index([policyId])
+  @@index([claimId])
+  @@index([ownerUserId])
+}
+
+model DocumentAccessLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String   @db.Uuid
+  userId     String   @db.Uuid
+  orgId      String?  @db.Uuid
+  action     String
+  reason     String?
+  createdAt  DateTime @default(now())
+}
+
+model DocumentShare {
+  id          String   @id @default(uuid()) @db.Uuid
+  documentId  String   @db.Uuid
+  agencyOrgId String   @db.Uuid
+  grantedBy   String   @db.Uuid
+  reason      String
+  createdAt   DateTime @default(now())
+
+  @@unique([documentId, agencyOrgId])
+}
+
+model Consent {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  user        User      @relation(fields: [userId], references: [id])
+  purpose     String // PD_PROCESSING | TERMS | MARKETING | COOKIES_ANALYTICS | PD_TRANSFER_AGENT
+  textVersion String
+  granted     Boolean
+  method      String
+  recipients  String?
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  @@index([userId, purpose])
+}
+
+model SupportAccessGrant {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  targetType String
+  targetId   String   @db.Uuid
+  reason     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+}
+
+// ───────────── Платежи ─────────────
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  AUTHORIZED
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  UNKNOWN
+}
+
+model Payment {
+  id              String        @id @default(uuid()) @db.Uuid
+  purpose         String // PREMIUM | SUBSCRIPTION
+  provider        String // DEMO_CARRIER_PAY | DEMO_SAAS_PAY
+  externalId      String        @unique
+  payerUserId     String?       @db.Uuid
+  payerOrgId      String?       @db.Uuid
+  recipientOrgId  String?       @db.Uuid
+  recipientLabel  String
+  amountKop       Int
+  currency        String        @default("RUB")
+  status          PaymentStatus @default(CREATED)
+  checkoutId      String?       @db.Uuid
+  invoiceId       String?       @db.Uuid
+  idempotencyKey  String        @unique
+  failureReason   String?
+  confirmedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  version         Int           @default(1)
+
+  @@index([checkoutId])
+}
+
+model PaymentStatusHistory {
+  id        String        @id @default(uuid()) @db.Uuid
+  paymentId String        @db.Uuid
+  from      PaymentStatus?
+  to        PaymentStatus
+  source    String
+  createdAt DateTime      @default(now())
+}
+
+model Refund {
+  id         String   @id @default(uuid()) @db.Uuid
+  paymentId  String   @db.Uuid
+  policyId   String?  @db.Uuid
+  externalId String   @unique
+  amountKop  Int
+  status     String   @default("PENDING") // PENDING | SUCCEEDED | FAILED
+  reason     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model WebhookInbox {
+  id              String    @id @default(uuid()) @db.Uuid
+  provider        String
+  externalEventId String
+  payload         Json
+  signatureValid  Boolean
+  processedAt     DateTime?
+  result          String?
+  receivedCount   Int       @default(1)
+  createdAt       DateTime  @default(now())
+
+  @@unique([provider, externalEventId])
+}
+
+// ───────────── Полисы, покрытия, начисления ─────────────
+
+enum ContractStatus {
+  PREPARED
+  CONCLUDED
+  TERMINATED
+  EXPIRED
+}
+
+model Policy {
+  id               String         @id @default(uuid()) @db.Uuid
+  number           String         @unique
+  checkoutId       String?        @unique @db.Uuid
+  requestId        String         @db.Uuid
+  clientId         String         @db.Uuid
+  carrierOrgId     String         @db.Uuid
+  agencyOrgId      String?        @db.Uuid
+  servicingAgentId String?        @db.Uuid
+  productCode      String
+  productVersionId String         @db.Uuid
+  quoteId          String         @db.Uuid
+  contractStatus   ContractStatus @default(PREPARED)
+  externalNumber   String?
+  objectTitle      String
+  terms            Json
+  premiumKop       Int
+  startsAt         DateTime
+  endsAt           DateTime
+  timezone         String         @default("Europe/Moscow")
+  concludedAt      DateTime?
+  terminatedAt     DateTime?
+  terminationReason String?
+  bookingRef       String?
+  bookingCanceledAt DateTime?
+  latitudeE6       Int?
+  longitudeE6      Int?
+  renewalReminderSentAt DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  version          Int            @default(1)
+
+  coverages Coverage[]
+  @@index([clientId])
+  @@index([agencyOrgId])
+}
+
+model Coverage {
+  id          String   @id @default(uuid()) @db.Uuid
+  policyId    String   @db.Uuid
+  policy      Policy   @relation(fields: [policyId], references: [id])
+  code        String
+  title       String
+  limitKop    Int
+  paidKop     Int      @default(0)
+  deductibleKop Int    @default(0)
+  version     Int      @default(1)
+
+  @@unique([policyId, code])
+}
+
+model Commission {
+  id             String   @id @default(uuid()) @db.Uuid
+  policyId       String   @db.Uuid
+  kind           String   @default("DISTRIBUTION") // DISTRIBUTION | REVERSAL
+  payerOrgId     String   @db.Uuid
+  recipientType  String // PLATFORM | AGENCY
+  recipientOrgId String?  @db.Uuid
+  baseKop        Int
+  rateBp         Int
+  amountKop      Int
+  status         String   @default("ACCRUED") // ACCRUED | CONFIRMED | RECEIVED | REVERSED
+  termsVersion   String
+  reversalOfId   String?  @db.Uuid
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([policyId, recipientType, kind])
+}
+
+// ───────────── События и обращения ─────────────
+
+model Observation {
+  id            String   @id @default(uuid()) @db.Uuid
+  source        String
+  stationId     String
+  metric        String // PRECIP_MM | WIND_MS
+  intervalStart DateTime
+  intervalEnd   DateTime
+  valueX100     Int
+  quality       String   @default("OK") // OK | SUSPECT | CORRECTED
+  isFinal       Boolean  @default(true)
+  revision      Int      @default(1)
+  rawPayload    Json?
+  receivedAt    DateTime @default(now())
+
+  @@unique([source, stationId, metric, intervalStart, revision])
+}
+
+enum EventCheckStatus {
+  SCHEDULED
+  COLLECTING
+  NEEDS_DATA
+  CALCULATED
+  SPECIALIST_REVIEW
+  COMPLETED
+}
+
+model EventCheck {
+  id          String           @id @default(uuid()) @db.Uuid
+  policyId    String           @unique @db.Uuid
+  status      EventCheckStatus @default(SCHEDULED)
+  ruleVersion String
+  result      String? // MET | NOT_MET | UNKNOWN
+  details     Json             @default("{}")
+  runs        Int              @default(0)
+  scheduledAt DateTime
+  calculatedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  version     Int              @default(1)
+}
+
+enum ClaimStatus {
+  DRAFT
+  SUBMITTED
+  NEEDS_INFO
+  REVIEWING
+  DECISION_PREPARED
+  APPROVED
+  REJECTED
+  PAYOUT_IN_PROGRESS
+  PAID
+  DISPUTED
+  CLOSED
+}
+
+model Claim {
+  id              String      @id @default(uuid()) @db.Uuid
+  number          String      @unique
+  policyId        String      @db.Uuid
+  clientId        String      @db.Uuid
+  agencyOrgId     String?     @db.Uuid
+  carrierOrgId    String      @db.Uuid
+  type            String // CLASSIC | PARAMETRIC
+  status          ClaimStatus @default(DRAFT)
+  carrierStatus   String?
+  eventCheckId    String?     @db.Uuid
+  eventDate       DateTime?
+  description     String?
+  answers         Json        @default("{}")
+  requiredDocs    Json        @default("[]")
+  decision        String?
+  decisionReason  String?
+  decisionBy      String?     @db.Uuid
+  evidence        Json        @default("{}")
+  slaDueAt        DateTime?
+  assigneeId      String?     @db.Uuid
+  disputeReason   String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  version         Int         @default(1)
+
+  @@index([clientId])
+  @@index([policyId])
+}
+
+model ClaimEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  claimId   String   @db.Uuid
+  type      String
+  actorId   String?  @db.Uuid
+  note      String?
+  data      Json     @default("{}")
+  createdAt DateTime @default(now())
+}
+
+model PayoutItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  claimId        String   @db.Uuid
+  policyId       String   @db.Uuid
+  coverageCode   String
+  basisKey       String
+  amountKop      Int
+  status         String   @default("INITIATED") // INITIATED | IN_PROGRESS | PAID | FAILED | UNKNOWN
+  externalId     String?  @unique
+  beneficiary    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([policyId, coverageCode, basisKey])
+}
+
+// ───────────── Общение и уведомления ─────────────
+
+model Conversation {
+  id          String   @id @default(uuid()) @db.Uuid
+  contextType String // REQUEST | CHECKOUT | POLICY | CLAIM
+  contextId   String   @db.Uuid
+  clientId    String   @db.Uuid
+  agencyOrgId String?  @db.Uuid
+  title       String
+  slaMinutes  Int      @default(60)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  messages Message[]
+  @@unique([contextType, contextId, agencyOrgId])
+}
+
+model Message {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  authorId       String?      @db.Uuid
+  authorRole     String // CLIENT | AGENT | AI | SYSTEM | SUPPORT
+  body           String
+  citations      Json?
+  attachmentDocId String?     @db.Uuid
+  deliveredAt    DateTime     @default(now())
+  readByClientAt DateTime?
+  readByAgencyAt DateTime?
+  handoff        Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id])
+  type      String
+  category  String    @default("SERVICE") // SERVICE | MARKETING
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  dedupeKey String?   @unique
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  name      String
+  props     Json     @default("{}")
+  createdAt DateTime @default(now())
+}
+
+// ───────────── Подписки и промо ─────────────
+
+model Plan {
+  id           String  @id @default(uuid()) @db.Uuid
+  code         String  @unique
+  title        String
+  priceKop     Int
+  maxUsers     Int
+  maxResponses Int
+  features     Json
+  version      Int     @default(1)
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  GRACE
+  RESTRICTED
+  ENDED
+}
+
+model Subscription {
+  id                String             @id @default(uuid()) @db.Uuid
+  organizationId    String             @unique @db.Uuid
+  planId            String             @db.Uuid
+  nextPlanId        String?            @db.Uuid
+  status            SubscriptionStatus
+  periodStart       DateTime
+  periodEnd         DateTime
+  autoRenew         Boolean            @default(false)
+  autoRenewConsentAt DateTime?
+  cancelAtPeriodEnd Boolean            @default(false)
+  graceUntil        DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  version           Int                @default(1)
+}
+
+model SubscriptionInvoice {
+  id             String    @id @default(uuid()) @db.Uuid
+  subscriptionId String    @db.Uuid
+  organizationId String    @db.Uuid
+  planId         String    @db.Uuid
+  periodStart    DateTime
+  periodEnd      DateTime
+  amountKop      Int
+  discountKop    Int       @default(0)
+  promoId        String?   @db.Uuid
+  status         String    @default("OPEN") // OPEN | PAID | FAILED | VOID
+  attempts       Int       @default(0)
+  nextRetryAt    DateTime?
+  paidAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([subscriptionId, periodStart])
+}
+
+model ResponseUsage {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  requestId      String   @db.Uuid
+  periodStart    DateTime
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, requestId, periodStart])
+}
+
+model Promo {
+  id            String   @id @default(uuid()) @db.Uuid
+  code          String   @unique
+  title         String
+  appliesTo     String   @default("SAAS_SUBSCRIPTION") // SAAS_SUBSCRIPTION | INSURANCE_PREMIUM (выключено)
+  audience      String
+  fundingSource String
+  budgetKop     Int
+  reservedKop   Int      @default(0)
+  usedKop       Int      @default(0)
+  discountKop   Int
+  maxUses       Int
+  uses          Int      @default(0)
+  validFrom     DateTime
+  validTo       DateTime
+  enabled       Boolean  @default(true)
+  ownerOrgId    String?  @db.Uuid
+  version       Int      @default(1)
+}
+
+// ───────────── Отзывы, автоматизация, задачи, объекты ─────────────
+
+model Review {
+  id          String   @id @default(uuid()) @db.Uuid
+  authorId    String   @db.Uuid
+  agencyOrgId String   @db.Uuid
+  policyId    String   @db.Uuid
+  stage       String   @default("SALE") // SALE | CLAIM
+  rating      Int
+  text        String
+  status      String   @default("PUBLISHED") // PUBLISHED | HIDDEN
+  moderationNote String?
+  agentReply  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([authorId, policyId, stage])
+}
+
+model AutomationRule {
+  id                 String   @id @default(uuid()) @db.Uuid
+  organizationId     String   @unique @db.Uuid
+  mode               String   @default("MANUAL") // MANUAL | CONFIRM | AUTO
+  productCodes       Json     @default("[]")
+  territories        Json     @default("[]")
+  maxSumInsuredRub   Int      @default(5000000)
+  maxVehicleAge      Int      @default(15)
+  requiredDocs       Json     @default("[]")
+  tariffMaxAgeDays   Int      @default(30)
+  maxContractsPerDay Int      @default(20)
+  dailyResponseLimit Int      @default(50)
+  minCommissionBp    Int      @default(1000)
+  discountFromCommissionKop Int @default(0)
+  improveMode        String   @default("NONE") // NONE | ONE_STEP
+  manualReasons      Json     @default("[]")
+  updatedAt          DateTime @updatedAt
+  version            Int      @default(1)
+}
+
+model AutomationRun {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  requestId      String   @db.Uuid
+  requestVersion Int
+  mode           String
+  result         String // SENT | DRAFT | TASK | SKIPPED | BLOCKED
+  steps          Json
+  quoteId        String?  @db.Uuid
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, requestId, requestVersion])
+}
+
+model Task {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  assigneeId     String?   @db.Uuid
+  title          String
+  note           String?
+  relatedType    String?
+  relatedId      String?   @db.Uuid
+  dueAt          DateTime?
+  status         String    @default("OPEN") // OPEN | DONE
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model ClientAssignment {
+  id          String    @id @default(uuid()) @db.Uuid
+  agencyOrgId String    @db.Uuid
+  clientId    String    @db.Uuid
+  agentUserId String    @db.Uuid
+  fromAt      DateTime  @default(now())
+  toAt        DateTime?
+  reason      String?
+}
+
+model SavedObject {
+  id          String    @id @default(uuid()) @db.Uuid
+  clientId    String    @db.Uuid
+  client      User      @relation(fields: [clientId], references: [id])
+  kind        String // CAR | PROPERTY | BOOKING
+  title       String
+  data        Json
+  confirmedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// ───────────── Администрирование, аудит, задания ─────────────
+
+model ExceptionItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  type        String // DATA | CALCULATION | CHECKOUT | PAYMENT | OBSERVATION | PAYOUT | AUTOMATION | DISPUTE
+  priority    String    @default("NORMAL") // LOW | NORMAL | HIGH | CRITICAL
+  entityType  String
+  entityId    String    @db.Uuid
+  reason      String
+  dueAt       DateTime
+  assigneeId  String?   @db.Uuid
+  status      String    @default("OPEN") // OPEN | IN_PROGRESS | WAITING_INFO | RESOLVED
+  actions     Json      @default("[]")
+  nextAction  String
+  resolution  String?
+  dedupeKey   String?   @unique
+  organizationId String? @db.Uuid
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  version     Int       @default(1)
+}
+
+model AdminApproval {
+  id          String    @id @default(uuid()) @db.Uuid
+  action      String // TARIFF_CHANGE | FINANCIAL_ADJUSTMENT | PAYOUT_RULE_CHANGE
+  payload     Json
+  reason      String
+  requestedBy String    @db.Uuid
+  approvedBy  String?   @db.Uuid
+  approvalReason String?
+  status      String    @default("PENDING") // PENDING | APPROVED | REJECTED | APPLIED
+  createdAt   DateTime  @default(now())
+  decidedAt   DateTime?
+}
+
+model FinancialAdjustment {
+  id          String   @id @default(uuid()) @db.Uuid
+  commissionId String? @db.Uuid
+  amountKop   Int
+  reason      String
+  approvalId  String   @db.Uuid
+  createdAt   DateTime @default(now())
+}
+
+model LaunchApproval {
+  id            String   @id @default(uuid()) @db.Uuid
+  country       String
+  carrierOrgId  String   @db.Uuid
+  productCode   String
+  channel       String
+  paymentFlow   String
+  docsVersion   String
+  approvedBy    Json
+  createdAt     DateTime @default(now())
+}
+
+model AuditLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  at            DateTime @default(now())
+  actorUserId   String?  @db.Uuid
+  actorOrgId    String?  @db.Uuid
+  actorRole     String?
+  action        String
+  entityType    String
+  entityId      String?
+  before        Json?
+  after         Json?
+  reason        String?
+  correlationId String?
+
+  @@index([entityType, entityId])
+  @@index([at])
+}
+
+model IdempotencyRecord {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  scope      String
+  key        String
+  bodyHash   String
+  status     Int
+  response   Json
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, scope, key])
+}
+
+model Job {
+  id          String    @id @default(uuid()) @db.Uuid
+  type        String
+  payload     Json
+  runAt       DateTime
+  status      String    @default("PENDING") // PENDING | RUNNING | DONE | FAILED | DEAD
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  uniqueKey   String?   @unique
+  lockedBy    String?
+  lockedAt    DateTime?
+  lastError   String?
+  result      Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, runAt])
+}
+
+model Outbox {
+  id          String    @id @default(uuid()) @db.Uuid
+  topic       String
+  payload     Json
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([processedAt])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+// Сторона эмулятора платёжного провайдера (отдельно от внутреннего учёта — для сверки).
+model EmulatorPayment {
+  externalId  String   @id
+  kind        String // PAYMENT | REFUND | PAYOUT
+  purpose     String
+  amountKop   Int
+  currency    String   @default("RUB")
+  status      String // PENDING | SUCCEEDED | FAILED | UNKNOWN
+  reference   String
+  scenario    String   @default("normal")
+  meta        Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
