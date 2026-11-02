@@ -1,0 +1,62 @@
+<title>Талисман — прототип P0</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one narrow column; role cards in an auto-fit grid, then scenario routes as a plain list. Single light theme, deliberately matching the app's own palette. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --ink: #17202c; --muted: #4f5b6b; --line: #d9dee5;
+  --accent: #0b5d7a; --accent-soft: #e3f0f5; --warn: #8a5300; --warn-soft: #fdf1dc;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  color-scheme: light;
+}
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font); }
+.wrap { max-width: 920px; margin: 0 auto; padding-block: 32px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
+.note { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; text-wrap: balance; letter-spacing: -0.01em; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+.lead { color: var(--muted); margin: 0; max-width: 65ch; }
+.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.role { display: grid; gap: 6px; align-content: start; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; color: var(--ink); text-decoration: none; min-width: 0; }
+.role:hover { border-color: var(--accent); text-decoration: none; }
+.role:focus-visible { outline: 3px solid #1d7fa3; outline-offset: 2px; }
+.role b { font-size: 16px; }
+.role span { color: var(--muted); font-size: 13px; }
+.role em { font-style: normal; color: var(--accent); font-size: 13px; font-variant-numeric: tabular-nums; }
+ol { margin: 0; padding-left: 20px; display: grid; gap: 10px; max-width: 70ch; }
+li { padding-left: 4px; }
+a { color: var(--accent); }
+.limits { color: var(--muted); font-size: 13px; max-width: 70ch; margin: 0; }
+</style>
+
+<main class="wrap">
+  <p class="note">Демонстрационный прототип. Все люди, компании, расчёты и документы вымышлены. Ни один документ не является действующим страховым полисом.</p>
+
+  <header>
+    <h1>Талисман: прототип P0</h1>
+    <p class="lead">Снимок настоящих экранов прототипа с демо-данными. Переходы между экранами работают, а кнопки действий в снимке ничего не выполняют, потому что за ним нет сервера.</p>
+  </header>
+
+  <section>
+    <h2>Выберите роль</h2>
+    <div class="roles">
+      <a class="role" href="client-c.html"><b>Клиент</b><span>Анна: заявки, сравнение предложений, оформление, полисы, обращения, чат</span><em>27 экранов</em></a>
+      <a class="role" href="agency-a.html"><b>Агентство</b><span>«Надёжный курс»: лента заявок, калькулятор, сделки, автоответ, подписка</span><em>28 экранов</em></a>
+      <a class="role" href="admin-admin.html"><b>Администратор платформы</b><span>Исключения, проверка участников, каталог, платежи, выручка, аудит, демопанель</span><em>21 экран</em></a>
+      <a class="role" href="carrier-admin.html"><b>Страховщик</b><span>«Северный щит»: решения по обращениям, мониторинг событий, продукты</span><em>10 экранов</em></a>
+      <a class="role" href="pub-home.html"><b>Публичный сайт</b><span>Каталог продуктов, тарифы для агентств, помощь, вход и регистрация</span><em>14 экранов</em></a>
+    </div>
+  </section>
+
+  <section>
+    <h2>С чего начать</h2>
+    <ol>
+      <li><a href="client-c-requests.html">Заявки клиента</a>: откройте заявку на КАСКО, затем сравнение предложений, сгруппированных по сопоставимым условиям.</li>
+      <li><a href="client-c-policies.html">Полисы клиента</a>: классические полисы и событийные RAIN01 (дождь на мероприятии) и WIND01 (недостаток ветра), с результатом проверки события.</li>
+      <li><a href="agency-a.html">Лента агентства</a>: заявки, на которые можно ответить, и окно приёма предложений по серверному времени.</li>
+      <li><a href="agency-a-automation.html">Автоответ агентства</a>: правила, режимы «с подтверждением» и «автоматически».</li>
+      <li><a href="admin-admin.html">Обзор платформы</a>: выручка платформы отдельно от объёма премий страховщикам.</li>
+      <li><a href="admin-admin-exceptions.html">Очередь исключений</a>: всё, что система передала людям.</li>
+    </ol>
+  </section>
+
+  <p class="limits">Полная версия с работающими действиями (оформление, подпись кодом, оплата в эмуляторе, расчёт события) запускается локально по README из архива проекта.</p>
+</main>
