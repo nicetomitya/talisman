@@ -63,10 +63,20 @@ export async function selectQuote(ctx: Ctx, i: { requestId: string; requestVersi
     if (cap !== 1) throw err("CAPACITY_EXHAUSTED", "Страховая ёмкость страховщика по продукту исчерпана");
     assertTransition("quote", "PUBLISHED", "SELECTED", "CLIENT");
     await tx.quote.update({ where: { id: q.id }, data: { status: "SELECTED", version: { increment: 1 } } });
+    // Матч: подбор закрывается окончательно, остальные предложения перестают действовать,
+    // их агентства получают нейтральное уведомление без данных клиента и теряют доступ к заявке.
     const auction = await tx.auction.findFirst({ where: { requestId: r.id, requestVersion: r.currentVersion } });
-    if (auction && (auction.status === "OPEN" || auction.status === "EXTENDED")) {
-      assertTransition("auction", auction.status, "PAUSED", "SYSTEM");
-      await tx.auction.update({ where: { id: auction.id }, data: { status: auction.closesAt > t ? "PAUSED" : "CLOSED", closedAt: auction.closesAt > t ? null : t, version: { increment: 1 } } });
+    if (auction && auction.status !== "CLOSED") {
+      assertTransition("auction", auction.status, "CLOSED", "SYSTEM");
+      await tx.auction.update({ where: { id: auction.id }, data: { status: "CLOSED", closedAt: t, version: { increment: 1 } } });
+    }
+    const others = await tx.quote.findMany({ where: { requestId: r.id, id: { not: q.id }, status: { in: ["DRAFT", "PUBLISHED"] } } });
+    for (const o of others) {
+      await tx.quote.update({ where: { id: o.id }, data: { status: "EXPIRED", withdrawReason: "Клиент выбрал другое предложение", version: { increment: 1 } } });
+      await tx.quoteEvent.create({ data: { quoteId: o.id, type: "NOT_SELECTED" } });
+    }
+    for (const orgId of new Set(others.map((o) => o.agencyOrgId).filter((x): x is string => !!x && x !== q.agencyOrgId))) {
+      await notifyOrg(tx, orgId, { type: "request.matched_other", title: "Клиент выбрал другое предложение", body: `${r.title}: подбор завершён. Данные клиента не передаются, заявка закрыта для вашего агентства.`, link: "/a", dedupeKey: `matched_other:${r.id}:${r.currentVersion}:${orgId}` });
     }
     assertTransition("request", r.status, "CHECKOUT", "CLIENT");
     await tx.insuranceRequest.update({ where: { id: r.id }, data: { status: "CHECKOUT", version: { increment: 1 } } });
@@ -82,7 +92,7 @@ export async function selectQuote(ctx: Ctx, i: { requestId: string; requestVersi
       const uploads = await tx.document.findMany({ where: { requestId: r.id, kind: "UPLOAD", status: "CLEAN" } });
       await shareWithAgency(tx, { userId: ctx.user.id }, uploads.map((d) => d.id), q.agencyOrgId, "Клиент выбрал предложение агентства");
       await ensureConversation(tx, { contextType: "CHECKOUT", contextId: c.id, clientId: ctx.user.id, agencyOrgId: q.agencyOrgId, title: `Сделка: ${r.title}` });
-      await notifyOrg(tx, q.agencyOrgId, { type: "quote.selected", title: "Клиент выбрал ваше предложение", body: `${r.title}. Резерв до ${reservationExpiresAt.toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow" })} МСК`, link: `/a/deals/${c.id}` });
+      await notifyOrg(tx, q.agencyOrgId, { type: "quote.selected", title: "У вас матч: клиент выбрал ваше предложение", body: `${r.title}. Чат с клиентом открыт. Резерв цены до ${reservationExpiresAt.toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow" })} МСК`, link: `/a/deals/${c.id}` });
     }
     await audit(tx, actor(ctx), "checkout.reserved", "Checkout", c.id, { after: { quoteId: q.id, seq: q.seq, totalKop: q.totalKop, reservationExpiresAt } });
     return { checkout_id: c.id, reservation_expires_at: reservationExpiresAt.toISOString(), status: c.status };

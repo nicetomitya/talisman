@@ -327,6 +327,9 @@ model InsuranceRequest {
   territory       String?
   currentVersion  Int           @default(0)
   renewalOfPolicyId String?     @db.Uuid
+  directAgencyOrgId String?     @db.Uuid // заявка конкретному агентству (после отменённого матча)
+  previousRequestId String?     @db.Uuid
+  cancelReason    String?
   publishedAt     DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt

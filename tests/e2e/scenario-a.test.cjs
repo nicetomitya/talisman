@@ -82,7 +82,13 @@ for (const [name, viewport] of [["mobile-360", { width: 360, height: 780 }], ["d
       assert.ok((await offers.count()) >= 2, "ожидалось минимум два предложения");
       await assertNoHScroll(page, "сравнение предложений");
       await offers.first().click();
+      // Подтверждение матча: понятно, что дальше общение только с этим агентством.
+      await page.getByText(/Дальше вы общаетесь только с этим агентством/).waitFor();
+      await assertNoHScroll(page, "подтверждение матча");
+      await page.getByRole("button", { name: "Да, выбрать" }).click();
       await page.waitForURL(/\/c\/checkouts\//);
+      await page.getByText(/^Вы и «/).waitFor();
+      await page.getByRole("link", { name: "Написать агентству" }).waitFor();
 
       await page.getByRole("button", { name: "Сформировать документы" }).click();
       await page.getByText("Документы комплекта").waitFor({ timeout: 20_000 });

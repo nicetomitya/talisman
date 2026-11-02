@@ -37,13 +37,19 @@ export default async function CheckoutPage({ params }: { params: Promise<{ id: s
     <>
       <PageTitle title={`Оформление: ${req.title}`} subtitle={<>Статус: <Status group="checkout" value={c.status} /></>} actions={<>
         {conv && <Link href={`/c/messages/${conv.id}`} className="btn btn-secondary no-underline">Чат с агентством</Link>}
-        {reserveActive || c.status === "PAYMENT" ? <Action url={`/api/checkouts/${c.id}/cancel`} body={{ reason: "Клиент передумал" }} label="Отменить оформление" variant="danger" confirm="Отменить оформление? Резерв будет снят." redirect={`/c/requests/${c.requestId}`} /> : null}
+        {reserveActive || c.status === "PAYMENT" ? <Action url={`/api/checkouts/${c.id}/cancel`} body={{ reason: "Клиент отменил матч" }} label="Отменить матч" variant="danger" confirm="Отменить матч? К прежним предложениям вернуться будет нельзя, только создать новую заявку (в том числе этому же агентству)." redirect={`/c/requests/${c.requestId}`} /> : null}
       </>} />
       {["CHECKING", "AWAITING_CARRIER", "PAYMENT"].includes(c.status) && <AutoRefresh />}
       <ol className="mb-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-6" aria-label="Шаги оформления">
         {STEPS.map((st, i) => <li key={st} aria-current={i === stepIdx ? "step" : undefined} className={`rounded border px-2 py-1.5 ${c.status === "CANCELLED" ? "border-line text-muted" : i < stepIdx ? "border-ok/30 bg-ok-soft text-ok" : i === stepIdx ? "border-accent bg-accent-soft font-semibold text-accent" : "border-line bg-white text-muted"}`}>{i < stepIdx ? "✓ " : `${i + 1}. `}{STEP_T[st]}</li>)}
       </ol>
-      {c.status === "CANCELLED" && <Card className="mb-4"><p className="text-sm text-bad">✕ Оформление отменено: {c.cancelReason}. <Link href={`/c/requests/${c.requestId}`}>Вернуться к предложениям</Link></p></Card>}
+      {c.status !== "CANCELLED" && agency && <section aria-label="Матч" className="mb-4 rounded-lg border border-accent bg-accent-soft p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-accent">Матч</p>
+        <p className="mt-1 text-lg font-semibold">Вы и «{agency.name}»</p>
+        <p className="mt-1 text-sm">{c.status === "COMPLETED" ? "Договор оформлен. Вопросы по полису и обращения ведёт это агентство." : "Теперь вы общаетесь только с этим агентством. Остальные предложения закрыты, ваши данные получило только оно."}</p>
+        {conv && <Link href={`/c/messages/${conv.id}`} className="btn btn-primary mt-3 no-underline">Написать агентству</Link>}
+      </section>}
+      {c.status === "CANCELLED" && <Card className="mb-4"><p className="text-sm text-bad">✕ Матч отменён: {c.cancelReason}.</p><p className="mt-1 text-sm"><Link href={`/c/requests/${c.requestId}`}>Создать новую заявку</Link>: всем агентствам или этому же.</p></Card>}
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <div className="space-y-4">
           {c.status === "RESERVED" && <Card title="Шаг 1. Резерв">
@@ -76,7 +82,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ id: s
           <Card title="Сводка">
             <KV items={[["Итого", <Money key="t" kop={s.quote.totalKop} />], ["Премия", <Money key="p" kop={s.quote.premiumKop} />], ["Сборы", <Money key="f" kop={s.quote.feesKop} />], ["Скидка", <Money key="d" kop={s.quote.discountKop} />], ["Страховщик", carrier.name], ["Агентство", agency?.name ?? "—"], ["Версия заявки", String(c.requestVersion)], ["Версия предложения", String(c.quoteSeq)]]} />
             {reserveActive && <p className="mt-3 text-sm"><Countdown label="Резерв цены" deadline={c.reservationExpiresAt.toISOString()} serverNow={t.toISOString()} /></p>}
-            {reserveActive && <p className="mt-1 text-xs text-muted">Если резерв истечёт, вы сможете выбрать предложение снова, если оно ещё действует.</p>}
+            {reserveActive && <p className="mt-1 text-xs text-muted">Если не продолжить оформление до конца резерва, матч завершится. Тогда можно будет отправить новую заявку этому же агентству.</p>}
           </Card>
           {payments.length > 0 && <Card title="Платежи"><ul className="space-y-1 text-sm">{payments.map((p) => <li key={p.id}><Money kop={p.amountKop} /> · <Status group="payment" value={p.status} /> · {fmtDate(p.createdAt, true)}</li>)}</ul></Card>}
         </aside>

@@ -12,6 +12,8 @@ import { Action, AutoRefresh, Countdown } from "@/components/client";
 import { RequestWizard } from "@/components/wizard";
 import { OfferCompare } from "@/components/offers";
 
+const kind_classic = (k: string) => k === "CLASSIC";
+
 export default async function RequestPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ edit?: string }> }) {
   const ctx = await requireClientPage();
   const { id } = await params; const sp = await searchParams;
@@ -23,6 +25,9 @@ export default async function RequestPage({ params, searchParams }: { params: Pr
   const checkout = await db.checkout.findFirst({ where: { requestId: r.id, status: { not: "CANCELLED" } }, orderBy: { createdAt: "desc" } });
   const policy = await db.policy.findFirst({ where: { requestId: r.id } });
   const conv = await db.conversation.findFirst({ where: { contextType: "REQUEST", contextId: r.id } });
+  const lastMatch = r.status === "CANCELLED" ? await db.checkout.findFirst({ where: { requestId: r.id, status: "CANCELLED", agencyOrgId: { not: null } }, orderBy: { createdAt: "desc" } }) : null;
+  const matchAgency = lastMatch?.agencyOrgId ? await db.organization.findUnique({ where: { id: lastMatch.agencyOrgId } }) : null;
+  const directAgency = r.directAgencyOrgId ? await db.organization.findUnique({ where: { id: r.directAgencyOrgId } }) : null;
 
   let wizard = null;
   if (editing) {
@@ -31,7 +36,7 @@ export default async function RequestPage({ params, searchParams }: { params: Pr
     wizard = <RequestWizard key={r.version} published={r.currentVersion > 0} req={{ id: r.id, version: r.version, status: r.status, data: r.data as any, confirmed: r.confirmed as any, kind: r.kind }} sections={schema.sections as any} initialIssues={issues}
       docs={docs.map((d) => ({ id: d.id, title: d.title, status: d.status, scanNote: d.scanNote, suggestions: (d.extracted as any)?.suggestions ?? [], untrusted: (d.extracted as any)?.untrustedInstructions ?? [], note: (d.extracted as any)?.note ?? null }))} />;
   }
-  const offers = r.currentVersion > 0 && !editing ? await offersForClient(ctx, r.id) : null;
+  const offers = r.currentVersion > 0 && !editing && r.status !== "CANCELLED" ? await offersForClient(ctx, r.id) : null;
   const a = offers?.auction;
   const open = a && (a.status === "OPEN" || a.status === "EXTENDED");
   const quarantine = editing && (await db.document.count({ where: { requestId: r.id, status: "QUARANTINE" } })) > 0;
@@ -45,7 +50,16 @@ export default async function RequestPage({ params, searchParams }: { params: Pr
           {["DRAFT", "NEEDS_INFO", "OPEN", "SELECTION"].includes(r.status) && <Action url={`/api/requests/${r.id}/cancel`} label="Отменить заявку" variant="danger" confirm="Отменить заявку? Предложения перестанут действовать." />}
         </>} />
       {(open || quarantine || r.status === "CHECKOUT") && <AutoRefresh />}
-      {checkout && <Card className="mb-4" title="Оформление"><p className="text-sm">Вы выбрали предложение. <Status group="checkout" value={checkout.status} /> <Link href={`/c/checkouts/${checkout.id}`}>Перейти к оформлению</Link></p></Card>}
+      {directAgency && <p className="mb-3 rounded-md border border-accent/30 bg-accent-soft p-3 text-sm">Заявка только для агентства «{directAgency.name}»: другие агентства её не увидят.</p>}
+      {checkout && <Card className="mb-4" title="Матч"><p className="text-sm">У вас матч с агентством. <Status group="checkout" value={checkout.status} /> <Link href={`/c/checkouts/${checkout.id}`}>Перейти к оформлению</Link></p></Card>}
+      {r.status === "CANCELLED" && kind_classic(r.kind) && <Card className="mb-4" title={matchAgency ? `Матч с «${matchAgency.name}» отменён` : "Заявка закрыта"}>
+        {r.cancelReason && <p className="text-sm text-muted">{r.cancelReason}</p>}
+        <p className="mt-1 text-sm">К прежним предложениям вернуться нельзя. Создайте новую заявку: данные подставятся, останется проверить ключевые поля.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {matchAgency && <Action url={`/api/requests/${r.id}/repeat`} body={{ toSameAgency: true }} label={`Новая заявка «${matchAgency.name}»`} variant="primary" redirect="/c/requests/{id}" />}
+          <Action url={`/api/requests/${r.id}/repeat`} body={{ toSameAgency: false }} label="Новая заявка всем агентствам" variant={matchAgency ? "secondary" : "primary"} redirect="/c/requests/{id}" />
+        </div>
+      </Card>}
       {policy && <Card className="mb-4" title="Полис"><Link href={`/c/policies/${policy.id}`}>{policy.number}</Link></Card>}
       {editing && sp.edit === "1" && <p className="mb-3 rounded-md border border-warn/30 bg-warn-soft p-3 text-sm text-warn">! Изменение существенных данных опубликованной заявки создаст новую версию: текущие предложения перестанут действовать, агентства получат уведомление.</p>}
       {wizard}

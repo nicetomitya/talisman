@@ -2,7 +2,7 @@ import { z } from "zod";
 import { api } from "@/server/api";
 import { asClient } from "@/server/access";
 import { err } from "@/server/errors";
-import { confirmFields, publishRequest, cancelRequest, applySuggestion } from "@/server/domain/requests";
+import { confirmFields, publishRequest, cancelRequest, applySuggestion, repeatRequest } from "@/server/domain/requests";
 import { offersForClient } from "@/server/domain/auction";
 import { uploadFile } from "@/server/domain/documents";
 
@@ -10,6 +10,7 @@ const S = {
   confirm: z.object({ keys: z.array(z.string().max(60)).min(1).max(40), version: z.number().int() }).strict(),
   publish: z.object({ version: z.number().int() }).strict(),
   cancel: z.object({}).strict(),
+  repeat: z.object({ toSameAgency: z.boolean() }).strict(),
   suggestion: z.object({ documentId: z.string().uuid(), key: z.string().max(60), version: z.number().int() }).strict(),
 };
 
@@ -38,6 +39,7 @@ export const POST = api({ csrf: true }, async ({ req, ctx, params }) => {
   if (!parsed.success) throw err("VALIDATION", "Проверьте поля", { fields: parsed.error.issues.map((i: any) => ({ path: i.path.join("."), message: i.message })) });
   const b = parsed.data;
   switch (params.action) {
+    case "repeat": { const r = await repeatRequest(c, params.id, b); return { id: r.id }; }
     case "confirm": { const r = await confirmFields(c, params.id, b.keys, b.version); return { version: r.version, confirmed: r.confirmed }; }
     case "publish": return publishRequest(c, params.id, b.version);
     case "cancel": { await cancelRequest(c, params.id); return { ok: true }; }

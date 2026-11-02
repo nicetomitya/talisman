@@ -19,6 +19,7 @@ import { enqueue } from "@/server/jobs";
 import { recoverStale, drainJobs } from "@/server/worker";
 import { ctxFor, fill, kaskoData, propData, quote, base, qctx, productId, toPayment } from "../helpers";
 
+const qctxFull = (c: any) => ({ ...c, orgId: c.org.orgId });
 let anna: any, igor: any, agentN: any, agentM: any, parus: any;
 beforeAll(async () => { [anna, igor, agentN, agentM, parus] = await Promise.all([ctxFor("anna@client.test"), ctxFor("igor@client.test"), ctxFor("agent@nadezhny.test"), ctxFor("agent1@most.test"), ctxFor("owner@parus.test", { orgName: "Парус и погода" })]); });
 
@@ -179,6 +180,52 @@ describe("Подписки агентств", () => {
       const doc = await db.document.findFirstOrThrow({ where: { policyId: p.id } });
       expect((await canAccessDocument(anna, doc.id)).basis).toBeTruthy();
     } finally { await db.subscription.update({ where: { id: sub.id }, data: { status: sub.status } }); }
+  });
+});
+
+describe("Модель матча", () => {
+  it("выбор = матч: торги закрыты, другие агентства уведомлены и теряют доступ; данные и чат только у выбранного", async () => {
+    const { requestForAgency, repeatRequest, publishRequest } = await import("@/server/domain/requests");
+    const { cancelCheckout } = await import("@/server/domain/checkout");
+    const r = await fill(anna, "KASKO", await kaskoData());
+    await quote(agentN, r.id, "KASKO_SEV", Math.round((await base(agentN, r.id, "KASKO_SEV")).base));
+    await quote(agentM, r.id, "KASKO_VOL", Math.round((await base(agentM, r.id, "KASKO_VOL")).base));
+    const offers = (await offersForClient(anna, r.id)).groups.flatMap((g: any) => g.offers);
+    const pick = offers.find((o: any) => o.agency?.id === agentN.org.orgId)!;
+    const sel = await selectQuote(anna, { requestId: r.id, requestVersion: 1, quoteId: pick.id, quoteVersion: pick.seq });
+    expect((await db.auction.findFirstOrThrow({ where: { requestId: r.id } })).status).toBe("CLOSED");
+    expect(await db.quote.count({ where: { requestId: r.id, agencyOrgId: agentM.org.orgId, status: "EXPIRED" } })).toBe(1);
+    expect(await db.notification.count({ where: { type: "request.matched_other", link: "/a" } })).toBeGreaterThan(0);
+    await expect(requestForAgency(qctxFull(agentM), r.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const mine = await requestForAgency(qctxFull(agentN), r.id);
+    expect(mine.dealCheckoutId).toBe(sel.checkout_id);
+    expect((mine.data as any).car_vin).toBeTruthy();
+    expect(await db.conversation.count({ where: { contextType: "CHECKOUT", contextId: sel.checkout_id, agencyOrgId: agentN.org.orgId } })).toBe(1);
+    expect(await db.conversation.count({ where: { contextType: "CHECKOUT", contextId: sel.checkout_id, agencyOrgId: agentM.org.orgId } })).toBe(0);
+    // Изменить существенные данные внутри матча нельзя.
+    const cur = await db.insuranceRequest.findUniqueOrThrow({ where: { id: r.id } });
+    await expect(saveDraft(anna, r.id, { data: { car_value_rub: 2600000 }, version: cur.version })).rejects.toMatchObject({ code: "CONFLICT" });
+
+    // Отмена матча до оплаты: заявка закрыта, прежние предложения не возвращаются.
+    await cancelCheckout(anna, sel.checkout_id, "Клиент отменил матч");
+    expect((await db.insuranceRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("CANCELLED");
+    expect(await db.quote.count({ where: { requestId: r.id, status: { in: ["PUBLISHED", "SELECTED"] } } })).toBe(0);
+    await expect(requestForAgency(qctxFull(agentN), r.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    // Новая заявка тому же агентству: видит только оно.
+    const again = await repeatRequest(anna, r.id, { toSameAgency: true });
+    expect(again.directAgencyOrgId).toBe(agentN.org.orgId);
+    const { confirmFields, getOwnRequest } = await import("@/server/domain/requests");
+    const d = await getOwnRequest(db, anna, again.id);
+    const { schemaFor } = await import("@/server/domain/catalog");
+    const keys = (schemaFor("KASKO").sections as any[]).flatMap((s) => s.fields).filter((f: any) => f.keyField).map((f: any) => f.key);
+    await confirmFields(anna, again.id, keys, d.version);
+    const fresh = await getOwnRequest(db, anna, again.id);
+    const pub = await publishRequest(anna, again.id, fresh.version);
+    expect(pub.published).toBe(true);
+    const a2 = await db.auction.findFirstOrThrow({ where: { requestId: again.id } });
+    expect(a2.eligibleOrgIds).toEqual([agentN.org.orgId]);
+    await expect(requestForAgency(qctxFull(agentM), again.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
 

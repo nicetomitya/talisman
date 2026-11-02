@@ -14,7 +14,7 @@ export const MACHINES = {
     NEEDS_INFO: [{ to: "OPEN", by: ["CLIENT", "SYSTEM"] }, { to: "DRAFT", by: ["CLIENT"] }, { to: "CANCELLED", by: ["CLIENT"] }],
     OPEN: [{ to: "SELECTION", by: ["SYSTEM"] }, { to: "CHECKOUT", by: ["CLIENT"] }, { to: "DRAFT", by: ["CLIENT"], note: "изменение существенных данных — новая версия" }, { to: "NEEDS_INFO", by: ["AGENT", "SYSTEM"] }, { to: "CANCELLED", by: ["CLIENT", "ADMIN"] }],
     SELECTION: [{ to: "CHECKOUT", by: ["CLIENT"] }, { to: "DRAFT", by: ["CLIENT"] }, { to: "OPEN", by: ["CLIENT"], note: "новый запрос/продление окна" }, { to: "CANCELLED", by: ["CLIENT", "SYSTEM"] }],
-    CHECKOUT: [{ to: "COMPLETED", by: ["SYSTEM"] }, { to: "OPEN", by: ["SYSTEM"], note: "резерв освобождён при открытом окне" }, { to: "SELECTION", by: ["SYSTEM"] }, { to: "DRAFT", by: ["CLIENT"] }],
+    CHECKOUT: [{ to: "COMPLETED", by: ["SYSTEM"] }, { to: "OPEN", by: ["SYSTEM"], note: "резерв освобождён при открытом окне" }, { to: "SELECTION", by: ["SYSTEM"] }, { to: "DRAFT", by: ["CLIENT"] }, { to: "CANCELLED", by: ["CLIENT", "SYSTEM"], note: "матч отменён до оплаты — дальше только новая заявка" }],
     COMPLETED: [],
     CANCELLED: [],
   },

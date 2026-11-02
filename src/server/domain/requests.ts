@@ -107,11 +107,7 @@ export async function saveDraft(ctx: Ctx, id: string, i: { data: Record<string, 
 async function invalidateForNewVersion(tx: Tx, ctx: Ctx, requestId: string, status: string) {
   const t = await now();
   const active = await tx.checkout.findFirst({ where: { requestId, status: { notIn: ["CANCELLED", "COMPLETED"] } } });
-  if (active) {
-    const livePay = await tx.payment.findFirst({ where: { checkoutId: active.id, status: { in: ["SUCCEEDED", "UNKNOWN", "PENDING", "AUTHORIZED"] } } });
-    if (livePay) throw err("CONFLICT", "Оплата уже начата — изменить существенные данные можно после отмены оформления через поддержку");
-    await releaseCheckout(tx, active.id, "Клиент изменил существенные данные заявки", "CLIENT");
-  }
+  if (active) throw err("CONFLICT", "У вас матч с агентством: чтобы изменить существенные данные, напишите агентству в чат или отмените матч и создайте новую заявку");
   const quotes = await tx.quote.findMany({ where: { requestId, status: { in: ["DRAFT", "PUBLISHED", "SELECTED"] } } });
   for (const q of quotes) {
     await tx.quote.update({ where: { id: q.id }, data: { status: "EXPIRED", withdrawReason: "Изменилась версия заявки", version: { increment: 1 } } });
@@ -124,7 +120,10 @@ async function invalidateForNewVersion(tx: Tx, ctx: Ctx, requestId: string, stat
   return quotes.length;
 }
 
-/** Освобождение резерва (отмена или истечение). Возвращает ёмкость и, при открытом окне, возобновляет торги. */
+/**
+ * Конец матча до оплаты (отмена клиентом, истечение резерва, изменение цены страховщиком).
+ * Вернуться к прежним предложениям нельзя: заявка закрывается, клиент может создать новую — всем или этому же агентству.
+ */
 export async function releaseCheckout(tx: Tx, checkoutId: string, reason: string, by: string) {
   const c = await tx.checkout.findUniqueOrThrow({ where: { id: checkoutId } });
   if (c.status === "CANCELLED" || c.status === "COMPLETED") return c;
@@ -135,21 +134,39 @@ export async function releaseCheckout(tx: Tx, checkoutId: string, reason: string
   const productCode = (await tx.insuranceRequest.findUniqueOrThrow({ where: { id: c.requestId } })).productCode;
   await tx.$executeRaw`UPDATE "CapacityPool" SET "reservedCount" = "reservedCount" - 1, "version" = "version" + 1 WHERE "carrierOrgId" = ${c.carrierOrgId}::uuid AND "productCode" = ${productCode} AND "reservedCount" > 0`;
   if (q.status === "SELECTED") {
-    const stillValid = q.expiresAt > t;
-    await tx.quote.update({ where: { id: q.id }, data: { status: stillValid ? "PUBLISHED" : "EXPIRED", version: { increment: 1 } } });
+    assertTransition("quote", "SELECTED", "EXPIRED", "SYSTEM");
+    await tx.quote.update({ where: { id: q.id }, data: { status: "EXPIRED", withdrawReason: `Матч отменён: ${reason}`, version: { increment: 1 } } });
   }
+  await tx.quote.updateMany({ where: { requestId: c.requestId, status: { in: ["DRAFT", "PUBLISHED"] } }, data: { status: "EXPIRED", withdrawReason: "Подбор по заявке завершён" } });
+  await tx.auction.updateMany({ where: { requestId: c.requestId, status: { not: "CLOSED" } }, data: { status: "CLOSED", closedAt: t } });
   const r = await tx.insuranceRequest.findUniqueOrThrow({ where: { id: c.requestId } });
   if (r.status === "CHECKOUT") {
-    const auction = await tx.auction.findFirst({ where: { requestId: r.id, requestVersion: r.currentVersion } });
-    const windowOpen = auction && auction.status === "PAUSED" && auction.closesAt > t;
-    if (auction && auction.status === "PAUSED") await tx.auction.update({ where: { id: auction.id }, data: { status: windowOpen ? "OPEN" : "CLOSED", closedAt: windowOpen ? null : t, version: { increment: 1 } } });
-    const next = !auction || windowOpen ? "OPEN" : "SELECTION";
-    await tx.insuranceRequest.update({ where: { id: r.id }, data: { status: auction ? next : "OPEN", version: { increment: 1 } } });
+    assertTransition("request", "CHECKOUT", "CANCELLED", by === "CLIENT" ? "CLIENT" : "SYSTEM");
+    await tx.insuranceRequest.update({ where: { id: r.id }, data: { status: "CANCELLED", cancelReason: `Матч отменён: ${reason}`, version: { increment: 1 } } });
   }
-  await audit(tx, { role: by }, "checkout.released", "Checkout", c.id, { reason });
-  await notify(tx, c.clientId, { type: "checkout.released", title: "Резерв предложения освобождён", body: reason, link: `/c/requests/${c.requestId}` });
-  if (c.agencyOrgId) await notifyOrg(tx, c.agencyOrgId, { type: "checkout.released", title: "Оформление отменено", body: reason, link: `/a/requests/${c.requestId}` });
+  await audit(tx, { role: by }, "match.cancelled", "Checkout", c.id, { reason });
+  await notify(tx, c.clientId, { type: "match.cancelled", title: "Матч отменён", body: `${reason}. Можно создать новую заявку — всем агентствам или этому же.`, link: `/c/requests/${c.requestId}` });
+  if (c.agencyOrgId) await notifyOrg(tx, c.agencyOrgId, { type: "match.cancelled", title: "Матч отменён", body: `${r.title}: ${reason}. Данные клиента больше недоступны.`, link: `/a/deals/${c.id}` });
   return upd;
+}
+
+/** Новая заявка на основе прежней: всем агентствам или напрямую агентству из отменённого матча. Данные копируются, ключевые поля нужно подтвердить заново. */
+export async function repeatRequest(ctx: Ctx, fromId: string, i: { toSameAgency: boolean }) {
+  const old = await getOwnRequest(db, ctx, fromId);
+  if (old.kind !== "CLASSIC") throw err("VALIDATION", "Повтор доступен для классических продуктов");
+  let directAgencyOrgId: string | null = null;
+  if (i.toSameAgency) {
+    const last = await db.checkout.findFirst({ where: { requestId: old.id, agencyOrgId: { not: null } }, orderBy: { createdAt: "desc" } });
+    if (!last?.agencyOrgId) throw err("NOT_FOUND", "По этой заявке не было матча с агентством");
+    directAgencyOrgId = last.agencyOrgId;
+  }
+  const confirmed: Record<string, any> = {};
+  for (const k of Object.keys(old.data as object)) confirmed[k] = { status: "NEEDS_RECHECK", source: "previous_request" };
+  return db.$transaction(async (tx) => {
+    const r = await tx.insuranceRequest.create({ data: { clientId: ctx.user.id, productCode: old.productCode, kind: old.kind, title: old.title, formSchemaId: old.formSchemaId, data: old.data as any, confirmed, directAgencyOrgId, previousRequestId: old.id } });
+    await audit(tx, actor(ctx), "request.repeat", "InsuranceRequest", r.id, { after: { from: old.id, directAgencyOrgId } });
+    return r;
+  });
 }
 
 export async function confirmFields(ctx: Ctx, id: string, keys: string[], version: number) {
@@ -228,12 +245,16 @@ export async function publishRequest(ctx: Ctx, id: string, version: number) {
     // reverse auction: подходящие участники — проверенные агентства с действующими полномочиями по продуктам этой линии.
     const mandates = await tx.mandate.findMany({ where: { productId: { in: products.map((p) => p.id) }, status: "ACTIVE", validFrom: { lte: t }, validTo: { gte: t } } });
     const orgs = await tx.organization.findMany({ where: { id: { in: [...new Set(mandates.map((m) => m.agencyOrgId))] }, type: "AGENCY", status: "ACTIVE", verificationStatus: "VERIFIED" } });
-    const eligible = orgs.filter((o) => !o.verifiedUntil || o.verifiedUntil > t).map((o) => o.id);
+    let eligible = orgs.filter((o) => !o.verifiedUntil || o.verifiedUntil > t).map((o) => o.id);
+    if (r.directAgencyOrgId) {
+      if (!eligible.includes(r.directAgencyOrgId)) throw err("FORBIDDEN", "Это агентство сейчас не может принять заявку по продукту — отправьте заявку всем агентствам");
+      eligible = [r.directAgencyOrgId];
+    }
     const closesAt = new Date(t.getTime() + DEMO_RULES.auctionWindowSec * 1000);
     const auction = await tx.auction.create({ data: { requestId: r.id, requestVersion: newVersion, status: "OPEN", opensAt: t, closesAt, originalClosesAt: closesAt, minStepKop: DEMO_RULES.minImprovementKop, eligibleOrgIds: eligible } });
     await enqueue(tx, "auction.close", { auctionId: auction.id }, { runAt: closesAt, uniqueKey: `auction.close:${auction.id}` });
     await outbox(tx, "request.published", { requestId: r.id, version: newVersion, eligible });
-    for (const orgId of eligible) await notifyOrg(tx, orgId, { type: "request.new", title: "Новая подходящая заявка", body: `${r.title}, окно предложений до ${closesAt.toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow" })} МСК`, link: `/a/requests/${r.id}`, dedupeKey: `reqnew:${r.id}:${newVersion}:${orgId}` });
+    for (const orgId of eligible) await notifyOrg(tx, orgId, { type: "request.new", title: r.directAgencyOrgId ? "Клиент снова выбрал вас: заявка лично вашему агентству" : "Новая подходящая заявка", body: `${r.title}, окно предложений до ${closesAt.toLocaleTimeString("ru-RU", { timeZone: "Europe/Moscow" })} МСК`, link: `/a/requests/${r.id}`, dedupeKey: `reqnew:${r.id}:${newVersion}:${orgId}` });
     return { published: true as const, version: newVersion, auctionId: auction.id };
   });
   return result;
@@ -258,9 +279,10 @@ export async function requestForAgency(ctx: Ctx & { orgId: string }, id: string)
   if (!r || r.currentVersion === 0) throw err("NOT_FOUND", "Заявка не найдена");
   const auction = await db.auction.findFirst({ where: { requestId: id }, orderBy: { requestVersion: "desc" } });
   const eligible = ((auction?.eligibleOrgIds as string[]) ?? []).includes(ctx.orgId);
-  const hasQuote = await db.quote.count({ where: { requestId: id, agencyOrgId: ctx.orgId } });
   const deal = await db.checkout.findFirst({ where: { requestId: id, agencyOrgId: ctx.orgId, status: { not: "CANCELLED" } } });
-  if (!eligible && !hasQuote && !deal) throw err("NOT_FOUND", "Заявка не найдена");
+  // После матча заявка доступна только агентству, с которым матч; остальным — «не найдено», без данных клиента.
+  const biddingStage = ["OPEN", "SELECTION"].includes(r.status);
+  if (!deal && !(eligible && biddingStage)) throw err("NOT_FOUND", "Заявка не найдена");
   const v = await db.requestVersion.findUniqueOrThrow({ where: { requestId_version: { requestId: id, version: r.currentVersion } } });
   const schema = schemaFor(r.productCode);
   const visible = deal ? (await import("./forms")).dealView(schema, v.data as any) : (v.publicData as Record<string, any>);

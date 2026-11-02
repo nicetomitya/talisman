@@ -66,7 +66,13 @@ describe("Reverse auction: окно, продление, резерв", () => {
     const o = (await offersForClient(anna, r.id)).groups[0].offers[0];
     const sel = await selectQuote(anna, { requestId: r.id, requestVersion: 1, quoteId: o.id, quoteVersion: o.seq });
     await advance(16 * 60_000);
-    try { await drainJobs(); expect((await db.checkout.findUniqueOrThrow({ where: { id: sel.checkout_id } })).status).toBe("CANCELLED"); }
+    try {
+      await drainJobs();
+      expect((await db.checkout.findUniqueOrThrow({ where: { id: sel.checkout_id } })).status).toBe("CANCELLED");
+      // Матч завершён: к прежним предложениям вернуться нельзя, заявка закрыта.
+      expect((await db.insuranceRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("CANCELLED");
+      expect(await db.quote.count({ where: { requestId: r.id, status: { in: ["PUBLISHED", "SELECTED"] } } })).toBe(0);
+    }
     finally { await advance(-16 * 60_000); }
   });
 });

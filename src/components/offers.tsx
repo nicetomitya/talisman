@@ -11,6 +11,7 @@ export function OfferCompare({ requestId, requestVersion, groups, canSelect }: {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
   const keys = useRef<Record<string, string>>({});
   const select = async (o: any) => {
     setBusy(o.id); setError(null);
@@ -52,8 +53,17 @@ export function OfferCompare({ requestId, requestVersion, groups, canSelect }: {
                 {o.isPreliminary && <p className="mt-2 text-xs text-warn">! Предварительная оценка: оформить нельзя.</p>}
                 {o.expired && <p className="mt-2 text-xs text-bad">✕ Срок действия цены истёк.</p>}
                 <details className="mt-2 text-sm"><summary className="cursor-pointer">Исключения и урегулирование</summary><ul className="mt-1 list-disc pl-5">{(o.terms.exclusions ?? []).map((e: any) => <li key={e.code}>{e.title}</li>)}</ul><p className="mt-1">{o.terms.settlement}</p></details>
-                {canSelect && o.status === "PUBLISHED" && !o.expired && !o.isPreliminary && <button type="button" className="btn btn-primary mt-3 w-full sm:w-auto" disabled={!!busy} onClick={() => select(o)}>{busy === o.id ? "Резервируем…" : "Выбрать это предложение"}</button>}
-                {o.status === "SELECTED" && <p className="mt-3 text-sm font-medium text-accent">✓ Выбрано вами</p>}
+                {canSelect && o.status === "PUBLISHED" && !o.expired && !o.isPreliminary && (pending === o.id ? (
+                  <div className="mt-3 rounded-md border border-accent bg-accent-soft p-3 text-sm" role="group" aria-label="Подтверждение матча">
+                    <p className="font-medium">Матч с {o.agency ? `«${o.agency.name}»` : o.carrier.name}?</p>
+                    <p className="mt-1 text-muted">Дальше вы общаетесь только с этим агентством: откроется чат, остальные предложения закроются. Передумать можно до оплаты, но к этим предложениям вернуться будет нельзя, только создать новую заявку.</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => select(o)}>{busy === o.id ? "Создаём матч…" : "Да, выбрать"}</button>
+                      <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={() => setPending(null)}>Назад к сравнению</button>
+                    </div>
+                  </div>
+                ) : <button type="button" className="btn btn-primary mt-3 w-full sm:w-auto" disabled={!!busy} onClick={() => setPending(o.id)}>Выбрать это предложение</button>)}
+                {o.status === "SELECTED" && <p className="mt-3 text-sm font-medium text-accent">✓ Ваш матч</p>}
               </li>
             ))}
           </ul>
