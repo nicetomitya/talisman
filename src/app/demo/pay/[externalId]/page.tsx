@@ -23,7 +23,7 @@ export default async function DemoPay({ params }: { params: Promise<{ externalId
           <dt className="text-muted">Номер операции</dt><dd className="break-all">{e.externalId}</dd>
           <dt className="text-muted">Статус у провайдера</dt><dd>{e.status}</dd>
         </dl>
-        {e.status === "PENDING" ? <PayerActions externalId={e.externalId} back={back} /> : <p className="text-sm">Операция завершена. <a href={back}>Вернуться в кабинет</a></p>}
+        {e.status === "PENDING" ? <PayerActions externalId={e.externalId} back={back} /> : <p role="status" className="text-sm">Результат у провайдера: <strong>{e.status}</strong>. Операция завершена. <a href={back}>Вернуться в кабинет</a></p>}
       </div>
     </main>
   );

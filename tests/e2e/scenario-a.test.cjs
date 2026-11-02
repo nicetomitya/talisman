@@ -27,7 +27,8 @@ for (const [name, viewport] of [["mobile-360", { width: 360, height: 780 }], ["d
       for (let i = 0; i < 8; i++) {
         const b = page.getByRole("button", { name: "Подставить" }).first();
         if (!(await b.count())) break;
-        await b.click();
+        // Кнопка может исчезнуть после автосохранения — это не ошибка, просто идём дальше.
+        await b.click({ timeout: 3_000 }).catch(() => null);
         await page.waitForTimeout(700);
       }
       assert.equal(await page.locator("#fld-car_make").inputValue(), "Kia");

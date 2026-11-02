@@ -10,7 +10,7 @@
     "worker": "tsx src/worker/index.ts",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "reset-demo": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts",
+    "reset-demo": "prisma migrate deploy && tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "node --test --test-concurrency=1 tests/e2e/*.test.cjs",
