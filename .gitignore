@@ -1,0 +1,9 @@
+node_modules
+.next
+storage/
+.env
+*.log
+test-results
+coverage
+tsconfig.tsbuildinfo
+next-env.d.ts
