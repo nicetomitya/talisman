@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-ink: #17202c;
+  --color-muted: #4f5b6b;
+  --color-line: #d9dee5;
+  --color-accent: #0b5d7a;
+  --color-accent-ink: #ffffff;
+  --color-accent-soft: #e3f0f5;
+  --color-ok: #146c43;
+  --color-ok-soft: #e4f3ea;
+  --color-warn: #8a5300;
+  --color-warn-soft: #fdf1dc;
+  --color-bad: #a3262d;
+  --color-bad-soft: #fbe7e8;
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+html { background: var(--color-bg); color: var(--color-ink); }
+body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+:focus-visible { outline: 3px solid #1d7fa3; outline-offset: 2px; border-radius: 4px; }
+a { color: var(--color-accent); }
+a:hover { text-decoration: underline; }
+.num { font-variant-numeric: tabular-nums; }
+input, select, textarea { font: inherit; }
+.field { @apply w-full rounded-md border border-line bg-white px-3 py-2 text-ink; }
+.field[aria-invalid="true"] { border-color: var(--color-bad); box-shadow: 0 0 0 1px var(--color-bad); }
+.btn { @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition disabled:opacity-60 disabled:cursor-not-allowed; min-height: 40px; }
+.btn-primary { @apply bg-accent text-accent-ink hover:brightness-110; }
+.btn-secondary { @apply border border-line bg-white text-ink hover:bg-bg; }
+.btn-danger { @apply border border-bad text-bad bg-white hover:bg-bad-soft; }
+.card { @apply rounded-lg border border-line bg-surface p-4 sm:p-5; }
+.tbl { @apply w-full text-sm; border-collapse: collapse; }
+.tbl th { @apply text-left font-medium text-muted border-b border-line py-2 pr-3; }
+.tbl td { @apply border-b border-line py-2 pr-3 align-top; }
+@media (max-width: 640px) {
+  .tbl-stack thead { display: none; }
+  .tbl-stack tr { display: block; border: 1px solid var(--color-line); border-radius: 8px; margin-bottom: 10px; padding: 8px 10px; background: white; }
+  .tbl-stack td { display: flex; justify-content: space-between; gap: 12px; border: 0; padding: 4px 0; text-align: right; }
+  .tbl-stack td::before { content: attr(data-label); color: var(--color-muted); text-align: left; font-weight: 500; }
+}
