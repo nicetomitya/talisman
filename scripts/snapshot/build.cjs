@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const raw = require("./snap/raw.json");
 const OUT = path.resolve("site"); fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT);
-fs.copyFileSync("/home/claude/talisman/.next/static/css/ebd5a4468a3777a5.css", path.join(OUT, "styles.css"));
+fs.copyFileSync(require("node:fs").readdirSync("/home/claude/talisman/.next/static/css").map((f) => "/home/claude/talisman/.next/static/css/" + f)[0], path.join(OUT, "styles.css"));
 const LABEL = { pub: "Гость (публичный сайт)", client: "Клиент Анна", agency: "Агентство «Надёжный курс»", admin: "Администратор платформы", carrier: "Представитель страховщика «Северный щит»" };
 const fileOf = (role, p) => `${role}-${p.replace(/^\//, "").replace(/[^a-zA-Z0-9]+/g, "-") || "home"}.html`;
 const BAR = (role) => `<div id="snapbar" style="position:sticky;top:0;z-index:60;background:#17202c;color:#fff;font:13px/1.4 system-ui,sans-serif;padding:8px max(16px,env(safe-area-inset-left,0px));display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center"><strong>Кликабельный снимок прототипа</strong><span style="opacity:.8">Роль: ${LABEL[role]}</span><a href="index.html" style="color:#9fd3e6;text-decoration:underline">Сменить роль</a></div>
