@@ -37,7 +37,7 @@ export function OfferCompare({ requestId, requestVersion, groups, canSelect }: {
                   <div><p className="text-xl font-semibold num">{rub(o.totalKop)}</p><p className="text-xs text-muted">Итого к оплате страховщику</p></div>
                   {g.offers.length > 1 && <span className="rounded bg-bg px-2 py-0.5 text-xs">{o.rankInGroup} место по цене в группе</span>}
                 </div>
-                <dl className="mt-3 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
+                <dl className="mt-3 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
                   <dt className="text-muted">Страховая премия</dt><dd className="num">{rub(o.premiumKop)}</dd>
                   <dt className="text-muted">Сборы</dt><dd className="num">{rub(o.feesKop)}</dd>
                   <dt className="text-muted">Скидка</dt><dd className="num">{o.discountKop ? `− ${rub(o.discountKop)} (за счёт ${o.discountPayer === "AGENCY" ? "комиссии агентства" : "страховщика"})` : "нет"}</dd>

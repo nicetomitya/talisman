@@ -50,7 +50,7 @@ export function fmtDate(d: Date | string | null | undefined, withTime = false, t
 
 export function KV({ items }: { items: [ReactNode, ReactNode][] }) {
   return (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
+    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)]">
       {items.map(([k, v], i) => (<div key={i} className="contents"><dt className="text-muted">{k}</dt><dd className="mb-1 break-words sm:mb-0">{v}</dd></div>))}
     </dl>
   );

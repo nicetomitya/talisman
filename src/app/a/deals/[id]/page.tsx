@@ -33,7 +33,7 @@ export default async function Deal({ params }: { params: Promise<{ id: string }>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Клиент и данные">
           <KV items={[["Клиент", c.status === "CANCELLED" ? "скрыто после отмены" : `${client.name} · ${client.email}`], ["Итог", <Money key="t" kop={s.quote.totalKop} />], ["Резерв до", fmtDate(c.reservationExpiresAt, true)]]} />
-          <dl className="mt-3 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 border-t border-line pt-3 text-sm">{Object.entries(data).map(([k, v]) => { const f = fields.find((x) => x.key === k); return <div key={k} className="contents"><dt className="text-muted">{f?.label ?? k}</dt><dd className="break-words">{formatValue(f, v)}</dd></div>; })}</dl>
+          <dl className="mt-3 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1 border-t border-line pt-3 text-sm">{Object.entries(data).map(([k, v]) => { const f = fields.find((x) => x.key === k); return <div key={k} className="contents"><dt className="text-muted">{f?.label ?? k}</dt><dd className="break-words">{formatValue(f, v)}</dd></div>; })}</dl>
           <p className="mt-2 text-xs text-muted">Данные, видимые только страховщику (например, собственник), агентству не передаются. Доступ к документам — по передаче клиента, каждое скачивание фиксируется.</p>
         </Card>
         <Card title="Документы клиента">{docs.length === 0 ? <p className="text-sm text-muted">Нет переданных документов.</p> : <ul className="space-y-1 text-sm">{docs.map((d) => <li key={d.id}><DocLink id={d.id} title={d.title} /> <span className="text-xs text-muted">· {DOC_KINDS[d.kind] ?? d.kind}</span></li>)}</ul>}

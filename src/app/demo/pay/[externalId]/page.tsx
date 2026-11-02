@@ -17,7 +17,7 @@ export default async function DemoPay({ params }: { params: Promise<{ externalId
       <div className="card space-y-4">
         <p className="rounded bg-warn-soft p-2 text-xs text-warn">Эмулятор платёжного провайдера. Реальные деньги не списываются, данные карты не вводятся.</p>
         <h1 className="text-xl font-semibold">Оплата {rub(e.amountKop)}</h1>
-        <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
+        <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
           <dt className="text-muted">Получатель</dt><dd>{p?.recipientLabel ?? "—"}</dd>
           <dt className="text-muted">Назначение</dt><dd>{e.purpose === "PREMIUM" ? "Страховая премия" : "Подписка на сервис"}</dd>
           <dt className="text-muted">Номер операции</dt><dd className="break-all">{e.externalId}</dd>

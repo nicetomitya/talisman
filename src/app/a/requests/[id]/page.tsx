@@ -32,7 +32,7 @@ export default async function AgencyRequest({ params }: { params: Promise<{ id: 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={v.dealCheckoutId ? "Данные заявки (после выбора)" : "Данные для расчёта"}>
           {!v.dealCheckoutId && <p className="mb-2 text-xs text-muted">Видны только поля, нужные для расчёта. Имя, контакты, VIN и точный адрес откроются, если клиент выберет ваше предложение.</p>}
-          <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">{Object.entries(data).map(([k, val]) => { const f = fields.find((x) => x.key === k); return <div key={k} className="contents"><dt className="text-muted">{f?.label ?? k}</dt><dd className="break-words">{formatValue(f, val)}</dd></div>; })}</dl>
+          <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">{Object.entries(data).map(([k, val]) => { const f = fields.find((x) => x.key === k); return <div key={k} className="contents"><dt className="text-muted">{f?.label ?? k}</dt><dd className="break-words">{formatValue(f, val)}</dd></div>; })}</dl>
         </Card>
         <Card title="Подбор">
           {a ? <div className="space-y-1 text-sm">

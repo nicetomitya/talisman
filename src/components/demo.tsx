@@ -54,3 +54,27 @@ export function DemoAction({ action, body, label, variant = "secondary", confirm
     </div>
   );
 }
+
+export function EmuSelect({ path, value, options, label }: { path: [string, string]; value: string; options: [string, string][]; label: string }) {
+  const router = useRouter();
+  const [error, setError] = useState<ApiError | null>(null);
+  const id = `emu-${path.join("-")}`;
+  return (
+    <div><label htmlFor={id} className="mb-1 block text-sm font-medium">{label}</label>
+      <select id={id} className="field" defaultValue={value} onChange={async (e) => {
+        const raw = e.target.value; const v = raw === "true" ? true : raw === "false" ? false : /^\d+$/.test(raw) ? Number(raw) : raw === "[]" ? [] : raw.startsWith("[") ? JSON.parse(raw) : raw;
+        setError(null); const r = await api("/api/demo/emulators", { body: { patch: { [path[0]]: { [path[1]]: v } } } }); if (!r.ok) return setError(r.error); router.refresh();
+      }}>{options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select><ErrorBox error={error} /></div>
+  );
+}
+
+export function ClockSet({ now }: { now: string }) {
+  const router = useRouter();
+  const [error, setError] = useState<ApiError | null>(null);
+  return (
+    <form className="flex flex-col gap-2 sm:flex-row sm:items-end" onSubmit={async (e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); const v = String(fd.get("at")); setError(null); const r = await api("/api/demo/clock-set", { body: { at: new Date(v).toISOString() } }); if (!r.ok) return setError(r.error); router.refresh(); }}>
+      <div><label htmlFor="ck" className="mb-1 block text-sm font-medium">Установить время (ваш часовой пояс)</label><input id="ck" name="at" type="datetime-local" className="field" defaultValue={now.slice(0, 16)} /></div>
+      <button className="btn btn-secondary">Установить</button><ErrorBox error={error} />
+    </form>
+  );
+}

@@ -31,7 +31,7 @@ input, select, textarea { font: inherit; }
 .btn-primary { @apply bg-accent text-accent-ink hover:brightness-110; }
 .btn-secondary { @apply border border-line bg-white text-ink hover:bg-bg; }
 .btn-danger { @apply border border-bad text-bad bg-white hover:bg-bad-soft; }
-.card { @apply rounded-lg border border-line bg-surface p-4 sm:p-5; }
+.card { @apply rounded-lg border border-line bg-surface p-4 sm:p-5; min-width: 0; overflow-wrap: anywhere; }
 .tbl { @apply w-full text-sm; border-collapse: collapse; }
 .tbl th { @apply text-left font-medium text-muted border-b border-line py-2 pr-3; }
 .tbl td { @apply border-b border-line py-2 pr-3 align-top; }
