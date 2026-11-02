@@ -73,6 +73,8 @@ export async function evaluateAutomation(orgId: string, requestId: string, reque
   if (r.currentVersion !== requestVersion || r.status !== "OPEN") { steps.push({ step: "request_version", ok: false, note: "Версия заявки изменилась или торги не открыты" }); return finish("SKIPPED"); }
   const v = await db.requestVersion.findUniqueOrThrow({ where: { requestId_version: { requestId, version: requestVersion } } });
   const d = v.publicData as any;
+  const own = await db.quote.count({ where: { requestId, requestVersion, agencyOrgId: orgId, status: { in: ["DRAFT", "PUBLISHED", "SELECTED"] } } });
+  if (own) { steps.push({ step: "request_version", ok: true, note: "У агентства уже есть предложение по этой версии — автоответ не дублирует" }); return finish("SKIPPED"); }
   if (!(rule.productCodes as string[]).includes(r.productCode)) { steps.push({ step: "product", ok: false, note: `Продукт ${r.productCode} не входит в правило` }); return finish("SKIPPED"); }
   const terr = (rule.territories as string[]);
   if (terr.length && !terr.includes(d.region ?? d.city)) { steps.push({ step: "territory", ok: false, note: "Территория не входит в правило" }); return finish("SKIPPED"); }

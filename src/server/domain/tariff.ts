@@ -53,7 +53,7 @@ export function computeClassic(rules: ClassicRules, data: Record<string, any>, n
     const cov: string[] = data.cover_objects ?? [];
     const covBp = cov.reduce((s, c) => s + (rules.coverWeightsBp![c] ?? 0), 0);
     if (covBp === 0) return { ok: false, reason: "Не выбраны объекты покрытия" };
-    p = mulBp(p, Math.max(covBp, 2500) * 2);
+    p = mulBp(p, Math.max(covBp, 2500));
   }
 
   let sur = Number(usage ?? 0);
