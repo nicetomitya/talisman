@@ -34,7 +34,7 @@ export default async function DemoPanel() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Демо-время">
           <p className="text-sm">Сейчас (демо): <strong>{fmtDate(t, true)}</strong> МСК. Заданий в очереди: {jobs}.</p>
-          <div className="mt-2 flex flex-wrap gap-2">{[[1, "+1 мин"], [5, "+5 мин"], [16, "+16 мин (истечь резерв)"], [60, "+1 час"], [1440, "+1 день"], [21600, "+15 дней"]].map(([m, l]) => <DemoAction key={m} action="clock-advance" body={{ minutes: m }} label={String(l)} />)}<DemoAction action="clock-reset" label="Сбросить время" /><DemoAction action="run-jobs" label="Выполнить задания сейчас" /></div>
+          <div className="mt-2 flex flex-wrap gap-2">{[[1, "+1 мин"], [5, "+5 мин"], [60, "+1 час"], [121, "+2 ч 1 мин (истечь время на оформление)"], [1440, "+1 день"], [21600, "+15 дней"]].map(([m, l]) => <DemoAction key={m} action="clock-advance" body={{ minutes: m }} label={String(l)} />)}<DemoAction action="clock-reset" label="Сбросить время" /><DemoAction action="run-jobs" label="Выполнить задания сейчас" /></div>
           <div className="mt-3"><ClockSet now={new Date(t.getTime() + 3 * 3600_000).toISOString()} /></div>
         </Card>
         <Card title="Сценарии">

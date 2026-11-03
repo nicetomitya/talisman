@@ -4,7 +4,7 @@ import { now, advance } from "@/server/clock";
 import { setEmu, EMU_DEFAULTS } from "@/server/adapters/emu";
 import { runEventCheck } from "@/server/domain/events";
 import { selectQuote } from "@/server/domain/checkout";
-import { offersForClient } from "@/server/domain/auction";
+import { offersForClient, withdrawQuote } from "@/server/domain/auction";
 import { reconcile } from "@/server/domain/payments";
 import { drainJobs } from "@/server/worker";
 import { hashPassword } from "@/server/auth/crypto";
@@ -31,7 +31,7 @@ beforeAll(async () => { [anna, agentN, agentM] = await Promise.all([ctxFor("anna
 afterAll(async () => { await setEmu(EMU_DEFAULTS as any); });
 
 describe("Reverse auction: окно, продление, резерв", () => {
-  it("улучшение в последние 30 с продлевает окно на 30 с, суммарно не более 2 минут (AC07)", async () => {
+  it("улучшение в последние 15 минут продлевает окно на 15 минут, суммарно не более часа (AC07)", async () => {
     const r = await fill(anna, "KASKO", await kaskoData());
     const a = await db.auction.findFirstOrThrow({ where: { requestId: r.id } });
     await db.auction.update({ where: { id: a.id }, data: { closesAt: new Date((await now()).getTime() + 10_000) } });
@@ -44,7 +44,7 @@ describe("Reverse auction: окно, продление, резерв", () => {
       price -= 100; await quote(agentN, r.id, "KASKO_SEV", price).catch(() => null);
     }
     const fin = await db.auction.findUniqueOrThrow({ where: { id: a.id } });
-    expect(fin.extensionTotalSec).toBe(120);
+    expect(fin.extensionTotalSec).toBe(3600);
     expect(fin.status).toBe("EXTENDED");
   });
   it("слишком малое улучшение отвергается (минимальный шаг)", async () => {
@@ -56,16 +56,26 @@ describe("Reverse auction: окно, продление, резерв", () => {
   it("окно закрывается по серверному времени, затем ожидает выбора клиента", async () => {
     const r = await fill(anna, "KASKO", await kaskoData());
     await quote(agentN, r.id, "KASKO_SEV", Math.round((await base(agentN, r.id, "KASKO_SEV")).base));
-    await advance(6 * 60_000);
+    const H = 24 * 3600_000 + 60_000;
+    await advance(20 * 3600_000); // через 20 часов окно ещё открыто
+    try { await drainJobs(); expect((await db.auction.findFirstOrThrow({ where: { requestId: r.id } })).status).toBe("OPEN"); }
+    finally { await advance(-20 * 3600_000); }
+    await advance(H);
     try { await drainJobs(); expect((await db.auction.findFirstOrThrow({ where: { requestId: r.id } })).status).toBe("CLOSED"); expect((await db.insuranceRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("SELECTION"); }
-    finally { await advance(-6 * 60_000); }
+    finally { await advance(-H); }
   });
-  it("резерв истекает через 15 минут и освобождается (AC10)", async () => {
+  it("после матча 2 часа на оформление: напоминания за час и за 15 минут, затем матч завершается (AC10)", async () => {
     const r = await fill(anna, "KASKO", await kaskoData());
     await quote(agentN, r.id, "KASKO_SEV", Math.round((await base(agentN, r.id, "KASKO_SEV")).base));
     const o = (await offersForClient(anna, r.id)).groups[0].offers[0];
     const sel = await selectQuote(anna, { requestId: r.id, requestVersion: 1, quoteId: o.id, quoteVersion: o.seq });
-    await advance(16 * 60_000);
+    await advance(61 * 60_000);
+    try {
+      await drainJobs();
+      expect((await db.checkout.findUniqueOrThrow({ where: { id: sel.checkout_id } })).status).not.toBe("CANCELLED");
+      expect(await db.notification.count({ where: { userId: anna.user.id, type: "match.reminder", link: { contains: sel.checkout_id } } })).toBe(1);
+    } finally { await advance(-61 * 60_000); }
+    await advance(121 * 60_000);
     try {
       await drainJobs();
       expect((await db.checkout.findUniqueOrThrow({ where: { id: sel.checkout_id } })).status).toBe("CANCELLED");
@@ -73,7 +83,27 @@ describe("Reverse auction: окно, продление, резерв", () => {
       expect((await db.insuranceRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("CANCELLED");
       expect(await db.quote.count({ where: { requestId: r.id, status: { in: ["PUBLISHED", "SELECTED"] } } })).toBe(0);
     }
-    finally { await advance(-16 * 60_000); }
+    finally { await advance(-121 * 60_000); }
+  });
+});
+
+describe("Фиксированные условия после подачи", () => {
+  it("после подачи цену можно только снижать, условия менять нельзя", async () => {
+    const r = await fill(anna, "KASKO", await kaskoData({ allow_alt_deductible: true }));
+    const b = Math.round((await base(agentN, r.id, "KASKO_SEV")).base);
+    await quote(agentN, r.id, "KASKO_SEV", b - 1000);
+    await expect(quote(agentN, r.id, "KASKO_SEV", b)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(quote(agentN, r.id, "KASKO_SEV", b - 1000)).rejects.toMatchObject({ code: "ALREADY_DONE" });
+    await expect(quote(agentN, r.id, "KASKO_SEV", b - 2000, { deductibleRub: 30000 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const q = await quote(agentN, r.id, "KASKO_SEV", b - 2000);
+    expect(q.quote.totalKop).toBe((b - 2000) * 100);
+  });
+  it("отозванное предложение нельзя подать заново", async () => {
+    const r = await fill(anna, "KASKO", await kaskoData());
+    const b = Math.round((await base(agentN, r.id, "KASKO_SEV")).base);
+    const q = (await quote(agentN, r.id, "KASKO_SEV", b)).quote;
+    await withdrawQuote({ ...agentN, orgId: agentN.org.orgId }, q.id, "Ошибка в расчёте");
+    await expect(quote(agentN, r.id, "KASKO_SEV", b - 1000)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
 

@@ -7,10 +7,12 @@ import { schemaFor } from "@/server/domain/catalog";
 import { validateForm } from "@/server/domain/forms";
 import { offersForClient } from "@/server/domain/auction";
 import { DEMO_RULES } from "@/server/config";
+import { durationRu } from "@/lib/duration";
 import { Card, PageTitle, Status, Empty, fmtDate } from "@/components/ui";
 import { Action, AutoRefresh, Countdown } from "@/components/client";
 import { RequestWizard } from "@/components/wizard";
 import { OfferCompare } from "@/components/offers";
+import { RequestReview } from "@/components/assistant";
 
 const kind_classic = (k: string) => k === "CLASSIC";
 
@@ -62,7 +64,7 @@ export default async function RequestPage({ params, searchParams }: { params: Pr
       </Card>}
       {policy && <Card className="mb-4" title="Полис"><Link href={`/c/policies/${policy.id}`}>{policy.number}</Link></Card>}
       {editing && sp.edit === "1" && <p className="mb-3 rounded-md border border-warn/30 bg-warn-soft p-3 text-sm text-warn">! Изменение существенных данных опубликованной заявки создаст новую версию: текущие предложения перестанут действовать, агентства получат уведомление.</p>}
-      {wizard}
+      {wizard && kind_classic(r.kind) && <RequestReview requestId={r.id} />}{wizard}
       {offers && (
         <div className="space-y-4">
           {a && r.kind === "CLASSIC" && (
@@ -71,7 +73,7 @@ export default async function RequestPage({ params, searchParams }: { params: Pr
                 <Status group="auction" value={a.status} />
                 {open ? <Countdown label="До окончания приёма предложений" deadline={a.closesAt.toISOString()} serverNow={t.toISOString()} /> : <span>Приём завершён {fmtDate(a.closedAt ?? a.closesAt, true)}</span>}
               </div>
-              <p className="mt-2 text-xs text-muted">Агентства могут улучшать цену до окончания срока. Если улучшение пришло за {DEMO_RULES.extendThresholdSec} секунд до конца, срок продлевается на {DEMO_RULES.extendBySec} секунд, но суммарно не более чем на {DEMO_RULES.maxExtensionSec / 60} минуты{a.extensionTotalSec ? ` (уже продлено на ${a.extensionTotalSec} с)` : ""}. Выбрать предложение можно в любой момент: выбор не обязан быть самым дешёвым.</p>
+              <p className="mt-2 text-xs text-muted">Агентства могут только снижать цену до окончания срока. Если улучшение пришло в последние {durationRu(DEMO_RULES.extendThresholdSec)}, срок продлевается на {durationRu(DEMO_RULES.extendBySec)}, но суммарно не больше чем на {durationRu(DEMO_RULES.maxExtensionSec)}{a.extensionTotalSec ? ` (уже продлено на ${durationRu(a.extensionTotalSec)})` : ""}. Выбрать можно в любой момент, не обязательно самое дешёвое. После выбора у вас будет {durationRu(DEMO_RULES.reservationMin * 60)} на оформление и оплату.</p>
             </Card>
           )}
           {offers.groups.length === 0 ? <Empty title={open ? "Предложений пока нет" : "Предложений не поступило"} text={open ? "Страница обновляется автоматически." : "Можно изменить условия и опубликовать заявку заново."} /> :

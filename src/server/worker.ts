@@ -4,7 +4,7 @@ import { log } from "./audit";
 import { enqueue } from "./jobs";
 import { scanDocument } from "./domain/documents";
 import { closeAuctionJob } from "./domain/auction";
-import { expireReservation, confirmWithCarrier } from "./domain/checkout";
+import { expireReservation, remindCheckout, confirmWithCarrier } from "./domain/checkout";
 import { checkPaymentStatus, processWebhook } from "./domain/payments";
 import { signWebhook, PROVIDERS } from "./adapters/payment";
 import { runEventCheck } from "./domain/events";
@@ -19,6 +19,7 @@ export const HANDLERS: Record<string, Handler> = {
   "document.scan": (p) => scanDocument(p.documentId),
   "auction.close": (p) => closeAuctionJob(p.auctionId),
   "checkout.expire": (p) => expireReservation(p.checkoutId),
+  "checkout.remind": (p) => remindCheckout(p.checkoutId, p.minutesLeft),
   "carrier.confirm": (p, attempt) => confirmWithCarrier(p.checkoutId, attempt),
   "payment.check": (p) => checkPaymentStatus(p.paymentId),
   "emu.webhook": async (p) => {

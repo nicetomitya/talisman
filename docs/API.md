@@ -18,8 +18,8 @@
 | `/api/auth/{action}` | POST | `register`, `verify`, `login`, `logout`, `reset-request`, `reset`, `totp-setup`, `totp-confirm`, `stepup`, `switch-org`, `revoke-session`, `demo-switch` (только demo) |
 | `/api/requests` | POST | создать черновик заявки |
 | `/api/requests/{id}` | GET, PATCH | прочитать (объём данных по роли), автосохранение черновика с версией |
-| `/api/requests/{id}/{action}` | GET, POST | `publish`, `confirm` (ключевое поле), `suggestion` (принять распознанное значение), `cancel`; загрузка файлов |
-| `/api/checkouts` | POST | выбрать предложение (`quote_id`, `quote_version`) → резерв на 15 мин |
+| `/api/requests/{id}/{action}` | GET, POST | GET: `offers`, `review` (проверка помощником); POST: `publish`, `confirm` (ключевое поле), `suggestion` (принять распознанное значение), `cancel`, `repeat`; загрузка файлов |
+| `/api/checkouts` | POST | выбрать предложение (`quote_id`, `quote_version`) → матч, 2 ч на оформление |
 | `/api/checkouts/{id}/{action}` | GET, POST | `prepare` (документы), `ack` (ознакомление), `code` (запрос кода), `verify` (подпись), `pay`, `cancel` |
 | `/api/policies/{id}/{action}` | POST | `claim`, `dispute`, `review`, `terminate`, `termination-preview`, `renew`, `change`, `booking-change` |
 | `/api/claims/{id}/{action}` | POST | `submit`, `upload`, `dispute`, `staff` (действия сотрудника по роли) |

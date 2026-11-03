@@ -82,7 +82,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ id: s
           <Card title="Сводка">
             <KV items={[["Итого", <Money key="t" kop={s.quote.totalKop} />], ["Премия", <Money key="p" kop={s.quote.premiumKop} />], ["Сборы", <Money key="f" kop={s.quote.feesKop} />], ["Скидка", <Money key="d" kop={s.quote.discountKop} />], ["Страховщик", carrier.name], ["Агентство", agency?.name ?? "—"], ["Версия заявки", String(c.requestVersion)], ["Версия предложения", String(c.quoteSeq)]]} />
             {reserveActive && <p className="mt-3 text-sm"><Countdown label="Резерв цены" deadline={c.reservationExpiresAt.toISOString()} serverNow={t.toISOString()} /></p>}
-            {reserveActive && <p className="mt-1 text-xs text-muted">Если не продолжить оформление до конца резерва, матч завершится. Тогда можно будет отправить новую заявку этому же агентству.</p>}
+            {reserveActive && <p className="mt-1 text-xs text-muted">На ознакомление, подпись и оплату есть 2 часа после матча, мы напомним за час и за 15 минут. Если не успеть, матч завершится. Тогда можно будет отправить новую заявку этому же агентству.</p>}
           </Card>
           {payments.length > 0 && <Card title="Платежи"><ul className="space-y-1 text-sm">{payments.map((p) => <li key={p.id}><Money kop={p.amountKop} /> · <Status group="payment" value={p.status} /> · {fmtDate(p.createdAt, true)}</li>)}</ul></Card>}
         </aside>

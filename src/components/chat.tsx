@@ -12,6 +12,7 @@ export function Chat({ id, me, allowAssistant }: { id: string; me: string; allow
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [offline, setOffline] = useState(false);
+  const [maskedNote, setMaskedNote] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const load = async () => {
     const r = await api(`/api/messages/${id}`);
@@ -26,10 +27,12 @@ export function Chat({ id, me, allowAssistant }: { id: string; me: string; allow
     const r = await api(`/api/messages/${id}`, { body: { body: text, askAssistant: ask } });
     setBusy(false);
     if (!r.ok) return setError(r.error);
+    setMaskedNote(!!r.data.contactsMasked);
     setText(""); load();
   };
   return (
     <div className="card flex flex-col">
+      <p className="mb-3 rounded-md bg-bg p-2 text-xs text-muted">Чат для вопросов по оформлению. Условия и цена предложения зафиксированы и здесь не меняются. Общение только через платформу: телефоны, почта и ссылки скрываются автоматически.</p>
       {offline && <p role="status" className="mb-2 rounded bg-warn-soft p-2 text-xs text-warn">Нет соединения. Сообщения обновятся после восстановления.</p>}
       <div className="max-h-[60vh] min-h-[200px] space-y-3 overflow-y-auto" aria-live="polite" aria-label="Сообщения">
         {msgs.length === 0 && <p className="text-sm text-muted">Сообщений пока нет.</p>}
@@ -54,6 +57,7 @@ export function Chat({ id, me, allowAssistant }: { id: string; me: string; allow
           {allowAssistant && <button className="btn btn-secondary" disabled={busy || !text.trim()} onClick={() => send(true)}>Спросить помощника по документам</button>}
         </div>
         {allowAssistant && <p className="mt-1 text-xs text-muted">Помощник отвечает только по документам этой сделки со ссылкой на пункт. Если ответа в документах нет, вопрос передаётся специалисту. Помощник не принимает решений о выплатах.</p>}
+        {maskedNote && <p role="status" className="mt-1 text-xs text-warn">! Контакты в сообщении скрыты: общение идёт только через платформу.</p>}
         <ErrorBox error={error} />
       </div>
     </div>

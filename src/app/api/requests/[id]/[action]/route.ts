@@ -5,6 +5,7 @@ import { err } from "@/server/errors";
 import { confirmFields, publishRequest, cancelRequest, applySuggestion, repeatRequest } from "@/server/domain/requests";
 import { offersForClient } from "@/server/domain/auction";
 import { uploadFile } from "@/server/domain/documents";
+import { reviewRequest } from "@/server/domain/assistant";
 
 const S = {
   confirm: z.object({ keys: z.array(z.string().max(60)).min(1).max(40), version: z.number().int() }).strict(),
@@ -16,6 +17,7 @@ const S = {
 
 export const GET = api({}, async ({ ctx, params }) => {
   const c = asClient(ctx);
+  if (params.action === "review") return reviewRequest(c, params.id);
   if (params.action !== "offers") throw err("NOT_FOUND", "Нет такого ресурса");
   return offersForClient(c, params.id);
 });

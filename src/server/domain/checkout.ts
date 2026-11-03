@@ -88,6 +88,7 @@ export async function selectQuote(ctx: Ctx, i: { requestId: string; requestVersi
         snapshot: { requestVersion: r.currentVersion, requestFingerprint: rv.fingerprint, requestData: rv.data as any, quote: { id: q.id, seq: q.seq, premiumKop: q.premiumKop, feesKop: q.feesKop, discountKop: q.discountKop, totalKop: q.totalKop, terms: q.terms, tariffVersionId: q.tariffVersionId, fingerprint: q.coverageFingerprint }, policyNumber, productId: q.productId, productCode: r.productCode } },
     });
     await enqueue(tx, "checkout.expire", { checkoutId: c.id }, { runAt: reservationExpiresAt, uniqueKey: `checkout.expire:${c.id}` });
+    for (const m of DEMO_RULES.matchRemindMin) await enqueue(tx, "checkout.remind", { checkoutId: c.id, minutesLeft: m }, { runAt: new Date(reservationExpiresAt.getTime() - m * 60_000), uniqueKey: `checkout.remind:${c.id}:${m}` });
     if (q.agencyOrgId) {
       const uploads = await tx.document.findMany({ where: { requestId: r.id, kind: "UPLOAD", status: "CLEAN" } });
       await shareWithAgency(tx, { userId: ctx.user.id }, uploads.map((d) => d.id), q.agencyOrgId, "Клиент выбрал предложение агентства");
@@ -379,6 +380,14 @@ export async function cancelCheckout(ctx: Ctx, checkoutId: string, reason: strin
   });
 }
 
+/** Напоминание клиенту, что срок оформления после матча заканчивается. */
+export async function remindCheckout(checkoutId: string, minutesLeft: number) {
+  const c = await db.checkout.findUnique({ where: { id: checkoutId } });
+  if (!c || !["RESERVED", "CHECKING", "DOCUMENTS", "CLIENT_CONFIRMATION", "PAYMENT"].includes(c.status)) return { skipped: true };
+  await notify(db as any, c.clientId, { type: "match.reminder", title: `До конца оформления ${minutesLeft >= 60 ? `${minutesLeft / 60} ч` : `${minutesLeft} мин`}`, body: "Ознакомьтесь с документами, подтвердите кодом и оплатите. Если не успеть, матч завершится, условия не продлеваются.", link: `/c/checkouts/${c.id}`, dedupeKey: `match.reminder:${c.id}:${minutesLeft}` });
+  return { reminded: true };
+}
+
 /** Истечение резерва (задание worker). Не отменяет оформление, если оплата уже начата. */
 export async function expireReservation(checkoutId: string) {
   return txRetry(async (tx) => {
@@ -389,7 +398,7 @@ export async function expireReservation(checkoutId: string) {
     if (c.reservationExpiresAt > t) { await enqueue(tx, "checkout.expire", { checkoutId }, { runAt: c.reservationExpiresAt, uniqueKey: `checkout.expire:${c.id}:${c.reservationExpiresAt.getTime()}` }); return { rescheduled: true }; }
     const live = await tx.payment.findFirst({ where: { checkoutId: c.id, status: { in: ["PENDING", "SUCCEEDED", "UNKNOWN", "AUTHORIZED"] } } });
     if (live) return { skipped: "payment_in_progress" };
-    await releaseCheckout(tx, c.id, "Резерв истёк: оформление не завершено за 15 минут", "SYSTEM");
+    await releaseCheckout(tx, c.id, "Время на оформление истекло: договор не оформлен и не оплачен за 2 часа после матча", "SYSTEM");
     return { expired: true };
   });
 }

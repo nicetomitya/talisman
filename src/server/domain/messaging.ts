@@ -1,3 +1,4 @@
+import { maskContacts } from "./contacts";
 import { db, type Tx } from "../db";
 import { err } from "../errors";
 import { audit } from "../audit";
@@ -30,9 +31,11 @@ export async function listConversations(ctx: Ctx) {
 
 export async function sendMessage(ctx: Ctx, conversationId: string, body: string, opts: { askAssistant?: boolean } = {}) {
   await rateLimit(`msg:${ctx.user.id}`, 40, 300);
-  const text = body.trim();
+  let text = body.trim();
   if (!text || text.length > 4000) throw err("VALIDATION", "Сообщение пустое или слишком длинное");
   const { conv, side } = await getConversation(ctx, conversationId);
+  const masked = side === "CLIENT" || side === "AGENT" ? maskContacts(text) : { text, masked: false };
+  text = masked.text;
   const msg = await db.$transaction(async (tx) => {
     const m = await tx.message.create({ data: { conversationId: conv.id, authorId: ctx.user.id, authorRole: side, body: text, readByClientAt: side === "CLIENT" ? new Date() : null, readByAgencyAt: side === "AGENT" ? new Date() : null } });
     await tx.conversation.update({ where: { id: conv.id }, data: { updatedAt: new Date() } });
@@ -42,7 +45,7 @@ export async function sendMessage(ctx: Ctx, conversationId: string, body: string
   });
   let ai = null;
   if (side === "CLIENT" && opts.askAssistant) ai = await assistantReply(ctx, conv, text);
-  return { message: msg, assistant: ai };
+  return { message: msg, assistant: ai, contactsMasked: masked.masked };
 }
 
 /** Документы контекста разговора, по которым помощник может отвечать. */

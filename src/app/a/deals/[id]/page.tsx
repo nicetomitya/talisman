@@ -16,7 +16,7 @@ export default async function Deal({ params }: { params: Promise<{ id: string }>
   if (!c) notFound();
   const [req, client, policy, conv, shares] = await Promise.all([
     db.insuranceRequest.findUniqueOrThrow({ where: { id: c.requestId } }),
-    db.user.findUniqueOrThrow({ where: { id: c.clientId }, select: { name: true, email: true } }),
+    db.user.findUniqueOrThrow({ where: { id: c.clientId }, select: { name: true } }),
     db.policy.findUnique({ where: { checkoutId: c.id } }),
     db.conversation.findFirst({ where: { contextType: "CHECKOUT", contextId: c.id } }),
     db.documentShare.findMany({ where: { agencyOrgId: ctx.org.orgId } }),
@@ -32,7 +32,7 @@ export default async function Deal({ params }: { params: Promise<{ id: string }>
       <PageTitle title={`Сделка: ${req.title}`} subtitle={<>Оформление: <Status group="checkout" value={c.status} />{policy && <> · полис {policy.number} <Status group="contract" value={policy.contractStatus} /></>}</>} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Клиент и данные">
-          <KV items={[["Клиент", c.status === "CANCELLED" ? "скрыто после отмены" : `${client.name} · ${client.email}`], ["Итог", <Money key="t" kop={s.quote.totalKop} />], ["Резерв до", fmtDate(c.reservationExpiresAt, true)]]} />
+          <KV items={[["Клиент", c.status === "CANCELLED" ? "скрыто после отмены" : `${client.name} · связь только через чат платформы`], ["Итог", <Money key="t" kop={s.quote.totalKop} />], ["Резерв до", fmtDate(c.reservationExpiresAt, true)]]} />
           <dl className="mt-3 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1 border-t border-line pt-3 text-sm">{Object.entries(data).map(([k, v]) => { const f = fields.find((x) => x.key === k); return <div key={k} className="contents"><dt className="text-muted">{f?.label ?? k}</dt><dd className="break-words">{formatValue(f, v)}</dd></div>; })}</dl>
           <p className="mt-2 text-xs text-muted">Данные, видимые только страховщику (например, собственник), агентству не передаются. Доступ к документам — по передаче клиента, каждое скачивание фиксируется.</p>
         </Card>

@@ -147,12 +147,16 @@ export async function submitQuote(ctx: { orgId: string; userId: string | null; c
     const fp = coverageFingerprint(terms);
     const prev = await tx.quote.findFirst({ where: { requestId: r.id, agencyOrgId: ctx.orgId, carrierOrgId: product.carrierOrgId, productId: product.id, status: { in: ["DRAFT", "PUBLISHED", "SELECTED"] } } });
     if (prev?.status === "SELECTED") throw err("CONFLICT", "Предложение выбрано клиентом — изменения только через отмену оформления");
+    // Поданное предложение фиксировано: можно только снизить цену при тех же условиях.
+    const withdrawn = await tx.quote.findFirst({ where: { requestId: r.id, requestVersion: r.currentVersion, agencyOrgId: ctx.orgId, productId: product.id, status: "WITHDRAWN" } });
+    if (withdrawn && !prev) throw err("FORBIDDEN", "Предложение по этому продукту было отозвано: повторно подать его по этой заявке нельзя");
     let improvement = false;
-    if (prev && prev.status === "PUBLISHED" && prev.coverageFingerprint === fp && publish) {
-      if (totalKop < prev.totalKop) {
-        if (prev.totalKop - totalKop < a.minStepKop) throw err("VALIDATION", `Улучшение цены должно быть не меньше ${a.minStepKop / 100} ₽`);
-        improvement = true;
-      } else if (totalKop === prev.totalKop) throw err("ALREADY_DONE", "Такое предложение уже опубликовано");
+    if (prev && prev.status === "PUBLISHED" && publish) {
+      if (prev.coverageFingerprint !== fp) throw err("FORBIDDEN", "Условия поданного предложения менять нельзя: можно только снизить цену");
+      if (totalKop > prev.totalKop) throw err("FORBIDDEN", "После подачи цену можно только снижать");
+      if (totalKop === prev.totalKop) throw err("ALREADY_DONE", "Такое предложение уже опубликовано");
+      if (prev.totalKop - totalKop < a.minStepKop) throw err("VALIDATION", `Улучшение цены должно быть не меньше ${a.minStepKop / 100} ₽`);
+      improvement = true;
     }
 
     if (publish) await recordResponseUsage(tx, ctx.orgId, r.id, sub.periodStart);
@@ -172,7 +176,7 @@ export async function submitQuote(ctx: { orgId: string; userId: string | null; c
     });
     await tx.quoteEvent.create({ data: { quoteId: q.id, type: publish ? (prev ? "REVISED" : "PUBLISHED") : "DRAFT_SAVED", data: { totalKop, prevTotalKop: prev?.totalKop ?? null, via: i.via ?? "MANUAL" } } });
 
-    // Продление окна: допустимое улучшение/новое предложение в последние 30 с продлевает на 30 с, суммарно ≤ 2 мин.
+    // Продление окна: улучшение или новое предложение в последние 15 минут продлевает на 15 минут, суммарно не больше часа.
     let extended = false;
     if (publish && (improvement || !prev) && a.closesAt.getTime() - t.getTime() <= DEMO_RULES.extendThresholdSec * 1000 && a.extensionTotalSec < DEMO_RULES.maxExtensionSec) {
       const add = Math.min(DEMO_RULES.extendBySec, DEMO_RULES.maxExtensionSec - a.extensionTotalSec);
