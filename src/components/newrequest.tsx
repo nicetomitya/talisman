@@ -10,14 +10,14 @@ const P = [
   { code: "RAIN01", title: "Дождь на мероприятии", text: "Фиксированная выплата при осадках от 5 мм за часы мероприятия." },
   { code: "WIND01", title: "Недостаток ветра", text: "Выплата, если на парусном занятии ветер был слабее 3 м/с." },
 ];
-export function NewRequest({ preset, objects }: { preset?: string; objects: { id: string; title: string; kind: string }[] }) {
+export function NewRequest({ preset, objects, initialText, sourceDetail }: { preset?: string; objects: { id: string; title: string; kind: string }[]; initialText?: string; sourceDetail?: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const create = async (body: any) => {
     setBusy(true); setError(null); setHint(null);
-    const r = await api("/api/requests", { body });
+    const r = await api("/api/requests", { body: sourceDetail ? { ...body, sourceDetail } : body });
     setBusy(false);
     if (!r.ok) return setError(r.error);
     if (r.data.needProduct) return setHint(r.data.message);
@@ -28,7 +28,7 @@ export function NewRequest({ preset, objects }: { preset?: string; objects: { id
       <section className="card"><h2 className="font-semibold">Опишите своими словами</h2>
         <form className="mt-2 space-y-2" onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); create({ freeText: String(fd.get("t") ?? "") }); }}>
           <label htmlFor="ft" className="sr-only">Описание</label>
-          <textarea id="ft" name="t" rows={3} className="field" placeholder="Например: хочу каско на Kia K5 2022 года или застраховать свадьбу в саду от дождя" required />
+          <textarea id="ft" name="t" rows={3} className="field" defaultValue={initialText} placeholder="Например: хочу каско на Kia K5 2022 года или застраховать свадьбу в саду от дождя" required />
           <button className="btn btn-primary" disabled={busy}>Подобрать вид страхования</button>
         </form>
         {hint && <p role="status" className="mt-2 text-sm text-warn">! {hint}</p>}

@@ -32,6 +32,11 @@ export const DEMO_RULES = {
   retryPaymentHours: [24, 72, 144],
   distributionRateBp: 1500, // 15% премии
   platformShareBp: 2000, // 20% от вознаграждения
+  // Гипотеза (U12): импортированный агентством клиент выбрал это же агентство на новом подборе — пониженная доля за организацию подбора.
+  platformShareSameAgencyBp: 1000, // 10% от вознаграждения; не утверждено владельцем
+  crmInviteDays: 30, // срок действия персональной ссылки-приглашения
+  crmRenewalLeadDays: 30, // задача на продление за 30 дней до окончания известного полиса
+  crmImportMaxRows: 5000,
   coolingOffDays: 14,
   otpTtlMin: 10,
   otpMaxAttempts: 5,

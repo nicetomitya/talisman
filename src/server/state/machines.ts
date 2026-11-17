@@ -90,6 +90,23 @@ export const MACHINES = {
     SUSPENDED: [{ to: "PUBLISHED", by: ["ADMIN"] }, { to: "ARCHIVED", by: ["ADMIN"] }],
     ARCHIVED: [],
   },
+  // CRM: путь контакта агентства к аккаунту клиента (imported_contact → invitation_prepared → invitation_sent →
+  // registered_unverified → linked_verified). Регистрация и подтверждение — только действием самого клиента.
+  crmLink: {
+    NOT_INVITED: [{ to: "PREPARED", by: ["AGENT", "OWNER"] }],
+    PREPARED: [{ to: "PREPARED", by: ["AGENT", "OWNER"], note: "новая ссылка, прежняя перестаёт действовать" }, { to: "SENT", by: ["AGENT", "OWNER"] }, { to: "REGISTERED", by: ["CLIENT"] }],
+    SENT: [{ to: "SENT", by: ["AGENT", "OWNER"] }, { to: "PREPARED", by: ["AGENT", "OWNER"] }, { to: "REGISTERED", by: ["CLIENT"] }],
+    REGISTERED: [{ to: "VERIFIED_LINKED", by: ["CLIENT"] }, { to: "REVOKED", by: ["CLIENT"] }],
+    VERIFIED_LINKED: [{ to: "REVOKED", by: ["CLIENT"], note: "клиент отозвал доступ" }],
+    REVOKED: [{ to: "PREPARED", by: ["AGENT", "OWNER"], note: "новое приглашение — снова только с согласия клиента" }],
+  },
+  // Начисления (BillingEvent): ACCRUED≈pending/confirmed, CONFIRMED≈invoiced, RECEIVED≈paid.
+  commission: {
+    ACCRUED: [{ to: "CONFIRMED", by: ["ADMIN"] }, { to: "DISPUTED", by: ["OWNER"] }],
+    CONFIRMED: [{ to: "RECEIVED", by: ["ADMIN"] }, { to: "DISPUTED", by: ["OWNER"] }],
+    DISPUTED: [{ to: "CONFIRMED", by: ["ADMIN"], note: "спор отклонён" }, { to: "REVERSED", by: ["ADMIN"], note: "спор признан: сторно отдельной записью" }],
+    RECEIVED: [], REVERSED: [],
+  },
 } satisfies Record<string, Machine>;
 
 export type MachineName = keyof typeof MACHINES;

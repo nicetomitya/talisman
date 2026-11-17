@@ -3,10 +3,10 @@ import { api } from "@/server/api";
 import { asClient } from "@/server/access";
 import { createRequest, suggestProduct } from "@/server/domain/requests";
 
-export const POST = api({ schema: z.object({ productCode: z.enum(["KASKO", "PROPERTY", "RAIN01", "WIND01"]).optional(), freeText: z.string().max(2000).optional(), savedObjectId: z.string().uuid().optional() }).strict() }, async ({ ctx, body }) => {
+export const POST = api({ schema: z.object({ productCode: z.enum(["KASKO", "PROPERTY", "RAIN01", "WIND01"]).optional(), freeText: z.string().max(2000).optional(), savedObjectId: z.string().uuid().optional(), sourceDetail: z.string().regex(/^seo:[a-z0-9-]{1,60}$/).optional() }).strict() }, async ({ ctx, body }) => {
   const c = asClient(ctx);
   const productCode = body.productCode ?? suggestProduct(body.freeText ?? "");
   if (!productCode) return { needProduct: true, message: "Не удалось определить вид страхования по описанию — выберите вручную" };
-  const r = await createRequest(c, { productCode, freeText: body.freeText, savedObjectId: body.savedObjectId });
+  const r = await createRequest(c, { productCode, freeText: body.freeText, savedObjectId: body.savedObjectId, sourceDetail: body.sourceDetail });
   return { id: r.id };
 });

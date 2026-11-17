@@ -19,8 +19,12 @@ export async function ctxFor(email: string, opts: { orgName?: string; mfa?: bool
 export const qctx = (c: Ctx) => ({ orgId: c.org!.orgId, userId: c.user.id, correlationId: "test", role: "AGENT" });
 export const inDays = async (d: number) => new Date((await now()).getTime() + d * 86400_000).toISOString().slice(0, 10);
 
-export const kaskoData = async (o: any = {}) => ({ car_make: "Kia", car_model: "K5", car_year: 2022, car_value_rub: 2400000, car_vin: "XWEG4417BN0001234", usage: "PERSONAL", owner_name: "Тестовая Анна", drivers_count: 1, min_driver_age: 35, min_experience: 12, claims_3y: 0, risks: ["DAMAGE", "THEFT"], territory: "RU", deductible_rub: "15000", allow_alt_deductible: true, repair_method: "SERVICE", start_date: await inDays(5), region: "RU-SPE", ...o });
-export const propData = async (o: any = {}) => ({ city: "Санкт-Петербург", address: "ул. Тестовая, 1", property_type: "APARTMENT", area_m2: 64, construction: "MONOLITH", year_built: 2015, usage: "OWN", cover_objects: ["STRUCTURE", "FINISH", "CONTENTS", "LIABILITY"], value_rub: 5000000, risks: ["FIRE", "WATER"], deductible_rub: "5000", allow_alt_deductible: false, start_date: await inDays(5), ...o });
+// Уникальный объект на каждый вызов: на один объект и период может быть только одна активная заявка (ТЗ 16.11, п. 7.2).
+let seq = 0;
+const VIN_CH = "ABCDEFGHJKLMNPRSTUVWXYZ0123456789";
+export const uniqueVin = () => "XWEG4417BN" + Array.from({ length: 7 }, () => VIN_CH[Math.floor(Math.random() * VIN_CH.length)]).join("");
+export const kaskoData = async (o: any = {}) => ({ car_vin: uniqueVin(), car_make: "Kia", car_model: "K5", car_year: 2022, car_value_rub: 2400000, usage: "PERSONAL", owner_name: "Тестовая Анна", drivers_count: 1, min_driver_age: 35, min_experience: 12, claims_3y: 0, risks: ["DAMAGE", "THEFT"], territory: "RU", deductible_rub: "15000", allow_alt_deductible: true, repair_method: "SERVICE", start_date: await inDays(5), region: "RU-SPE", ...o });
+export const propData = async (o: any = {}) => ({ city: "Санкт-Петербург", address: `ул. Тестовая, ${++seq}-${Date.now() % 100000}`, property_type: "APARTMENT", area_m2: 64, construction: "MONOLITH", year_built: 2015, usage: "OWN", cover_objects: ["STRUCTURE", "FINISH", "CONTENTS", "LIABILITY"], value_rub: 5000000, risks: ["FIRE", "WATER"], deductible_rub: "5000", allow_alt_deductible: false, start_date: await inDays(5), ...o });
 
 export async function fill(ctx: Ctx, productCode: string, data: Record<string, any>, publish = true) {
   await db.rateLimit.deleteMany();

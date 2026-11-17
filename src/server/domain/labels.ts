@@ -12,7 +12,11 @@ export const L: Record<string, Record<string, string>> = {
   subscription: { TRIAL: "Пробная", ACTIVE: "Активна", PAST_DUE: "Ожидает оплаты", GRACE: "Льготный период", RESTRICTED: "Ограничена", ENDED: "Завершена" },
   product: { DRAFT: "Черновик", SUBMITTED_TO_CARRIER: "Направлен страховщику", CARRIER_APPROVED: "Согласован страховщиком", PLATFORM_CHECKED: "Проверен платформой", PUBLISHED: "Опубликован", SUSPENDED: "Приостановлен", ARCHIVED: "Архив" },
   verification: { PENDING: "На проверке", VERIFIED: "Проверено", REJECTED: "Отклонено", EXPIRED: "Проверка истекла" },
-  commission: { ACCRUED: "Начислено", CONFIRMED: "Подтверждено", RECEIVED: "Получено", REVERSED: "Сторнировано" },
+  commission: { ACCRUED: "Начислено", CONFIRMED: "Подтверждено", RECEIVED: "Получено", REVERSED: "Сторнировано", DISPUTED: "Оспаривается" },
+  crmLink: { NOT_INVITED: "Не приглашён", PREPARED: "Приглашение подготовлено", SENT: "Приглашение отправлено", REGISTERED: "Зарегистрирован, не подтверждён", VERIFIED_LINKED: "Связан с кабинетом", REVOKED: "Связь отозвана клиентом" },
+  dealOrigin: { MARKETPLACE: "Подбор на платформе", IMPORTED_OTHER_AGENCY: "Клиент другого агентства, новый подбор", IMPORTED_SAME_AGENCY: "Ваш приглашённый клиент, новый подбор" },
+  source: { ORGANIC: "Пришёл сам", IMPORTED_BY_AGENT: "Приглашён агентством", REFERRAL: "Рекомендация", PARTNER: "Партнёр", PAID: "Реклама", EXISTING_USER: "Уже пользователь" },
+  extVerification: { UNVERIFIED: "Добавлен вами, не проверен", AGENT_STATED: "Со слов агентства, не проверен", VERIFIED: "Проверен" },
   doc: { QUARANTINE: "Проверяется (карантин)", CLEAN: "Проверен", REJECTED: "Отклонён", GENERATED: "Сформирован" },
   mandate: { ACTIVE: "Действует", REVOKED: "Отозвано", EXPIRED: "Истекло" },
 };

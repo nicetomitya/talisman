@@ -12,6 +12,7 @@ import { sendPayout } from "./domain/claims";
 import { evaluateAutomation } from "./domain/automation";
 import { autoCharge, tickSubscriptions } from "./domain/subscriptions";
 import { tickPolicies } from "./domain/policies";
+import { tickExternalPolicies } from "./domain/cabinet";
 import { raiseException } from "./domain/exceptions";
 
 type Handler = (payload: any, attempt: number) => Promise<unknown>;
@@ -96,6 +97,7 @@ export async function workerTick() {
     lastTick = Date.now();
     await tickSubscriptions().catch((e) => log("error", "tick.subscriptions", { e: e.message }));
     await tickPolicies().catch((e) => log("error", "tick.policies", { e: e.message }));
+    await tickExternalPolicies().catch((e) => log("error", "tick.external_policies", { e: e.message }));
   }
   await db.setting.upsert({ where: { key: "worker_heartbeat" }, update: { value: { at: new Date().toISOString(), id: WORKER_ID } }, create: { key: "worker_heartbeat", value: { at: new Date().toISOString(), id: WORKER_ID } } });
   return n;

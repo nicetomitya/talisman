@@ -8,6 +8,7 @@ import { specialistRecollect } from "@/server/domain/events";
 import { moderateReview } from "@/server/domain/reviews";
 import { db } from "@/server/db";
 import { audit } from "@/server/audit";
+import { setCommissionStatus } from "@/server/domain/commissions";
 
 type Def = { schema: z.ZodTypeAny; carrier?: boolean; support?: boolean; run: (ctx: any, b: any) => Promise<unknown> };
 const D: Record<string, Def> = {
@@ -26,7 +27,7 @@ const D: Record<string, Def> = {
   reconcile: { support: true, schema: z.object({}).strict(), run: () => reconcile() },
   "support-access": { support: true, schema: z.object({ targetType: z.enum(["Document", "Client"]), targetId: z.string().uuid(), reason: z.string().min(10).max(300), minutes: z.number().int().min(5).max(60) }).strict(), run: (c, b) => A.grantSupportAccess(c, b) },
   "hide-review": { schema: z.object({ id: z.string().uuid(), reason: z.enum(["PERSONAL_DATA", "OFFENSIVE", "NOT_ABOUT_SERVICE"]) }).strict(), run: (c, b) => moderateReview(c, b.id, b.reason) },
-  "commission-status": { schema: z.object({ id: z.string().uuid(), status: z.enum(["CONFIRMED", "RECEIVED"]) }).strict(), run: async (c, b) => { const r = await db.commission.update({ where: { id: b.id }, data: { status: b.status } }); await audit(db, actor(c), "commission.status", "Commission", b.id, { after: { status: b.status } }); return r; } },
+  "commission-status": { schema: z.object({ id: z.string().uuid(), status: z.enum(["CONFIRMED", "RECEIVED", "REVERSED"]), note: z.string().max(500).optional() }).strict(), run: (c, b) => setCommissionStatus(c, b.id, b.status, b.note) },
 };
 
 export const POST = api({}, async ({ req, ctx, params }) => {
