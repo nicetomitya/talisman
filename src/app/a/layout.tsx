@@ -10,7 +10,7 @@ export default async function AgencyLayout({ children }: { children: React.React
   const sub = await db.subscription.findUnique({ where: { organizationId: org.id } });
   const owner = ctx.org.role === "AGENCY_OWNER";
   const nav = [
-    { href: "/a", label: "Заявки" }, { href: "/a/deals", label: "Сделки" }, { href: "/a/claims", label: "Обращения" }, { href: "/a/messages", label: "Сообщения" },
+    { href: "/a", label: "Заявки" }, { href: "/a/deals", label: "Сделки" }, { href: "/a/crm", label: "Клиенты (CRM)" }, { href: "/a/claims", label: "Обращения" }, { href: "/a/messages", label: "Сообщения" },
     { href: "/a/automation", label: "Автоматизация" }, { href: "/a/products", label: "Продукты" }, { href: "/a/rating", label: "Рейтинг" }, { href: "/a/earnings", label: "Вознаграждение" },
     ...(owner ? [{ href: "/a/subscription", label: "Подписка" }, { href: "/a/team", label: "Команда" }] : []), { href: "/a/settings", label: "Настройки" },
   ];

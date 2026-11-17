@@ -37,6 +37,8 @@ model User {
   failedLogins     Int          @default(0)
   lockedUntil      DateTime?
   isDemo           Boolean      @default(true)
+  acquisitionSource String? // ORGANIC | IMPORTED_BY_AGENT | REFERRAL | PARTNER | PAID — откуда пришёл аккаунт (не меняется после первой записи)
+  acquisitionOrgId  String?     @db.Uuid // агентство, чьё приглашение привело клиента (только для IMPORTED_BY_AGENT)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   version          Int          @default(1)
@@ -330,6 +332,9 @@ model InsuranceRequest {
   directAgencyOrgId String?     @db.Uuid // заявка конкретному агентству (после отменённого матча)
   previousRequestId String?     @db.Uuid
   cancelReason    String?
+  source          String        @default("ORGANIC") // ORGANIC | IMPORTED_BY_AGENT | REFERRAL | PARTNER | PAID | EXISTING_USER
+  sourceOrgId     String?       @db.Uuid // агентство-источник клиента (для IMPORTED_BY_AGENT); не даёт прав на заявку
+  sourceDetail    String?       // например seo:wedding-rain, market-check:<id>
   publishedAt     DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -724,7 +729,9 @@ model Commission {
   baseKop        Int
   rateBp         Int
   amountKop      Int
-  status         String   @default("ACCRUED") // ACCRUED | CONFIRMED | RECEIVED | REVERSED
+  status         String   @default("ACCRUED") // ACCRUED | CONFIRMED | RECEIVED | REVERSED | DISPUTED
+  dealOrigin     String?  // MARKETPLACE | IMPORTED_OTHER_AGENCY | IMPORTED_SAME_AGENCY — правило начисления по происхождению сделки
+  disputeReason  String?
   termsVersion   String
   reversalOfId   String?  @db.Uuid
   note           String?
@@ -1219,4 +1226,122 @@ model EmulatorPayment {
   meta        Json     @default("{}")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// ───────────── CRM агентства (P1, дополнение ТЗ от 16.11.2026) ─────────────
+// CrmContact ≠ User: карточка существует без аккаунта; связь с аккаунтом — только после подтверждения клиентом.
+// Все записи CRM принадлежат одной организации (tenant isolation): запросы всегда с organizationId.
+
+enum CrmLinkState {
+  NOT_INVITED
+  PREPARED
+  SENT
+  REGISTERED
+  VERIFIED_LINKED
+  REVOKED
+}
+
+model CrmContact {
+  id                String       @id @default(uuid()) @db.Uuid
+  organizationId    String       @db.Uuid
+  responsibleUserId String?      @db.Uuid
+  name              String
+  phone             String?
+  email             String?
+  phoneNorm         String?
+  emailNorm         String?
+  provenance        String       @default("MANUAL") // MANUAL | IMPORT | MARKETPLACE
+  legalBasis        String // основание обработки: EXISTING_CONTRACT | CLIENT_CONSENT | OTHER_DOCUMENTED
+  notes             String?      // внутренние заметки агентства: никогда не показываются клиенту и другим агентствам
+  importBatchId     String?      @db.Uuid
+  linkState         CrmLinkState @default(NOT_INVITED)
+  linkedUserId      String?      @db.Uuid
+  inviteTokenHash   String?      @unique
+  inviteExpiresAt   DateTime?
+  invitePreparedAt  DateTime?
+  inviteSentAt      DateTime?
+  inviteChannel     String?
+  registeredAt      DateTime?
+  linkedAt          DateTime?
+  revokedAt         DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  version           Int          @default(1)
+
+  policies     CrmPolicy[]
+  interactions CrmInteraction[]
+  @@unique([organizationId, emailNorm])
+  @@unique([organizationId, phoneNorm])
+  @@unique([organizationId, linkedUserId])
+  @@index([organizationId, linkState])
+}
+
+/** Известный агентству полис контакта (оформлен вне платформы или до неё). Не создаёт начислений. */
+model CrmPolicy {
+  id             String     @id @default(uuid()) @db.Uuid
+  organizationId String     @db.Uuid
+  contactId      String     @db.Uuid
+  contact        CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  category       String // KASKO | OSAGO | PROPERTY | TRAVEL | HEALTH | EVENT | OTHER
+  insurerName    String
+  number         String?
+  objectTitle    String
+  startsAt       DateTime?
+  endsAt         DateTime?
+  premiumKop     Int?
+  sharedAt       DateTime?  // передан клиенту в кабинет (после связывания и его подтверждения)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([organizationId, endsAt])
+}
+
+model CrmInteraction {
+  id             String     @id @default(uuid()) @db.Uuid
+  organizationId String     @db.Uuid
+  contactId      String     @db.Uuid
+  contact        CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  authorUserId   String?    @db.Uuid
+  kind           String // NOTE | CALL | MESSAGE_DRAFT | MESSAGE_SENT_MANUAL | SYSTEM
+  text           String
+  createdAt      DateTime   @default(now())
+
+  @@index([contactId, createdAt])
+}
+
+model CrmImportBatch {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  userId         String   @db.Uuid
+  fileName       String
+  legalBasis     String
+  total          Int
+  created        Int
+  duplicates     Int
+  rejected       Int
+  errors         Json     @default("[]")
+  createdAt      DateTime @default(now())
+}
+
+/** Полис клиента, оформленный вне платформы: добавлен вручную или передан агентом. Источник и проверка — отдельно. */
+model ExternalPolicy {
+  id                String    @id @default(uuid()) @db.Uuid
+  clientId          String    @db.Uuid
+  source            String // CLIENT_MANUAL | AGENT_CRM
+  sourceOrgId       String?   @db.Uuid
+  crmPolicyId       String?   @unique @db.Uuid
+  verification      String    @default("UNVERIFIED") // UNVERIFIED | AGENT_STATED | VERIFIED
+  category          String
+  insurerName       String
+  number            String?
+  objectTitle       String
+  startsAt          DateTime?
+  endsAt            DateTime?
+  premiumKop        Int?
+  reminderSentAt    DateTime?
+  archivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([clientId])
 }

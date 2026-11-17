@@ -14,7 +14,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   ] : [
     { href: "/admin", label: "Обзор" }, { href: "/admin/exceptions", label: "Исключения", badge: openExc }, { href: "/admin/orgs", label: "Организации" }, { href: "/admin/catalog", label: "Каталог" },
     { href: "/admin/requests", label: "Заявки" }, { href: "/admin/events", label: "События" }, { href: "/admin/claims", label: "Обращения" }, { href: "/admin/payments", label: "Платежи" },
-    { href: "/admin/billing", label: "Доходы и подписки" }, { href: "/admin/documents", label: "Документы" }, { href: "/admin/reviews", label: "Отзывы" }, { href: "/admin/approvals", label: "Согласования", badge: pendingApprovals },
+    { href: "/admin/billing", label: "Доходы и подписки" }, { href: "/admin/funnel", label: "Воронка" }, { href: "/admin/documents", label: "Документы" }, { href: "/admin/reviews", label: "Отзывы" }, { href: "/admin/approvals", label: "Согласования", badge: pendingApprovals },
     { href: "/admin/audit", label: "Аудит" }, { href: "/admin/integrations", label: "Интеграции" }, { href: "/admin/settings", label: "Безопасность" },
   ];
   return (

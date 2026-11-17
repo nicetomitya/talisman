@@ -13,6 +13,7 @@ import { hashPassword, randomToken } from "@/server/auth/crypto";
 import { adapters } from "@/server/adapters";
 import { planAllows } from "@/server/domain/subscriptions";
 import { exceptionAction } from "@/server/domain/admin";
+import { disputeCommission } from "@/server/domain/commissions";
 
 const S: Record<string, z.ZodTypeAny> = {
   calc: z.object({ requestId: z.string().uuid(), productId: z.string().uuid(), deductibleRub: z.number().int().optional() }).strict(),
@@ -29,6 +30,7 @@ const S: Record<string, z.ZodTypeAny> = {
   "submit-product": z.object({ productId: z.string().uuid() }).strict(),
   profile: z.object({ description: z.string().max(1000), specialization: z.string().max(200), territory: z.string().max(200), languages: z.string().max(100), responseMode: z.string().max(100) }).strict(),
   exception: z.object({ id: z.string().uuid(), action: z.enum(["ASSIGN_ME", "NOTE", "RESOLVE"]), note: z.string().max(1000).default("") }).strict(),
+  "commission-dispute": z.object({ commissionId: z.string().uuid(), reason: z.string().min(10).max(1000) }).strict(),
 };
 
 export const POST = api({}, async ({ req, ctx, params }) => {
@@ -88,5 +90,9 @@ export const POST = api({}, async ({ req, ctx, params }) => {
       return { ok: true };
     }
     case "exception": return exceptionAction(a, b.id, b.action, b.note);
+    case "commission-dispute": {
+      if (a.role !== "AGENCY_OWNER") throw err("FORBIDDEN", "Оспорить начисление может владелец агентства");
+      const r = await disputeCommission(a, b.commissionId, b.reason); return { id: r.id, status: r.status };
+    }
   }
 });

@@ -1,3 +1,6 @@
+import { importContacts, createContact, addCrmPolicy, prepareInvitation, markInvitationSent, acceptInvitation, confirmLink } from "../domain/crm";
+import { addExternalPolicy } from "../domain/cabinet";
+import { asAgency } from "../access";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { db } from "../db";
@@ -311,6 +314,31 @@ export async function seed(opts: { log?: (s: string) => void; scenarioData?: boo
   await upsertReview(cAnna, { policyId: propBuy.policy!.id, stage: "SALE", rating: 5, text: "Быстро ответили и понятно объяснили условия." });
   await upsertReview(cIgor, { policyId: oldBuy.policy!.id, stage: "SALE", rating: 3, text: "Оформили, но ответа в чате ждал долго." });
   await db.notification.create({ data: { userId: anna.id, type: "marketing.digest", category: "MARKETING", title: "Подборка: защита для летних мероприятий", body: "Рекламное сообщение (отправлено, т.к. есть согласие на маркетинг)." } });
+  // CRM агентства (дополнение ТЗ 16.11): собственная база «Надёжного курса» без регистрации клиентов,
+  // Игорь связан с кабинетом, у «Моста» для Анны подготовлено приглашение (Анна видит его только после перехода по ссылке).
+  const crmN = asAgency(ag1), crmM = asAgency(ag2);
+  const csv = [
+    "Имя;Телефон;Email;Вид;Страховщик;Номер полиса;Объект;Дата окончания;Премия;Примечание",
+    `Ирина Соколова;+7 900 101-20-30;irina.sokolova@contact.test;КАСКО;Северный щит;SH-2025-0101;Hyundai Solaris 2019;${await tomorrow(20)};38 500;Продлевает каждый год, просила звонить после 18`,
+    `Олег Кузнецов;+7 900 202-30-40;;Квартира;Волга-Гарант;VG-77-123;Квартира, Казань;${await tomorrow(75)};6 200;`,
+    `Марина Лебедева;;marina.l@contact.test;ОСАГО;Другая страховая;;Kia Rio 2017;${await tomorrow(140)};;Клиентка с 2021 года`,
+    `Сергей Павлов;+7 900 404-50-60;;Путешествие;Северный щит;;Поездка в Турцию;;;Спрашивал про страховку для дома`,
+  ].join("\n");
+  await importContacts(crmN, { fileName: "моя-база.csv", csv, legalBasis: "EXISTING_CONTRACT" });
+  const igorCard = await createContact(crmN, { name: "Петров Игорь Сергеевич", email: "igor@client.test", legalBasis: "EXISTING_CONTRACT", notes: "Внутренняя заметка агентства: предпочитает переписку" });
+  await addCrmPolicy(crmN, igorCard.id, { category: "OSAGO", insurerName: "Другая страховая", number: "XXX-0001234", objectTitle: "Skoda Octavia 2019", endsAt: await tomorrow(40) });
+  const igorInv = await prepareInvitation(crmN, igorCard.id);
+  await markInvitationSent(crmN, igorCard.id, "TELEGRAM");
+  await acceptInvitation(cIgor, igorInv.link.split("/invite/")[1]);
+  await confirmLink(cIgor, igorCard.id, { sharePolicies: true });
+  const annaCard = await createContact(crmM, { name: "Анна Смирнова", email: "anna@client.test", legalBasis: "CLIENT_CONSENT", notes: "Знакомая по прошлому месту работы" });
+  const annaInv = await prepareInvitation(crmM, annaCard.id);
+  // Демо: агент «Моста» сам отправил приглашение на почту Анны (платформа не рассылает приглашения) — письмо кладём в демопочту.
+  await markInvitationSent(crmM, annaCard.id, "EMAIL");
+  await db.demoMail.create({ data: { userId: anna.id, toEmail: "anna@client.test", subject: "Приглашение от агентства «Мост» (письмо агента)", body: annaInv.text.replace(process.env.APP_URL ?? "", "") } });
+  await addExternalPolicy(cAnna, { category: "OSAGO", insurerName: "Другая страховая", number: "AAA-0007777", objectTitle: "Kia K5 2022", endsAt: await tomorrow(25) });
+  log("CRM агентств и внешние полисы созданы");
+
   await db.session.deleteMany({ where: { isDemoSwitch: true, expiresAt: { lt: new Date(Date.now() + 2 * 3600_000) } } });
   log("Сид завершён");
   return { anna, igor, c4: c4.id, rDraft: rDraft.id, fx: Object.keys(fx) };
