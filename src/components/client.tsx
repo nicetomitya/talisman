@@ -152,7 +152,7 @@ export function LogoutButton() {
 }
 
 /** Cookie-настройки с реальным эффектом: необязательная аналитика пишется только при согласии (AC28). */
-export function CookieBanner({ loggedIn }: { loggedIn: boolean }) {
+export function CookieBanner({ loggedIn, lang = "ru" }: { loggedIn: boolean; lang?: "ru" | "en" }) {
   const [shown, setShown] = useState(false);
   useEffect(() => { if (!document.cookie.includes("tcookie=")) setShown(true); }, []);
   const choose = async (analytics: boolean) => {
@@ -161,6 +161,14 @@ export function CookieBanner({ loggedIn }: { loggedIn: boolean }) {
     setShown(false);
   };
   if (!shown) return null;
+  if (lang === "en") return (
+    <div role="region" aria-label="Cookie settings" className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white p-4 shadow-lg">
+      <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm">We use necessary cookies (session, CSRF protection, your draft). Optional page-view analytics run only if you allow them.</p>
+        <div className="flex gap-2"><button className="btn btn-secondary" onClick={() => choose(false)}>Necessary only</button><button className="btn btn-primary" onClick={() => choose(true)}>Allow analytics</button></div>
+      </div>
+    </div>
+  );
   return (
     <div role="region" aria-label="Настройки cookie" className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white p-4 shadow-lg">
       <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

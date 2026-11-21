@@ -4,7 +4,7 @@ import type { Actor } from "./audit";
 
 export type Member = { orgId: string; orgType: OrgType; orgName: string; role: MemberRole; orgStatus: string; verification: string; verifiedUntil: Date | null };
 export type Ctx = {
-  user: { id: string; email: string; name: string; kind: "CLIENT" | "STAFF"; totpEnabled: boolean };
+  user: { id: string; email: string; name: string; kind: "CLIENT" | "STAFF"; totpEnabled: boolean; market: string };
   sessionId: string;
   mfa: boolean;
   isDemoSwitch: boolean;
@@ -20,7 +20,7 @@ export function buildCtx(s: any, correlationId: string): Ctx {
   }));
   const org = memberships.find((m) => m.orgId === s.activeOrgId) ?? memberships[0] ?? null;
   return {
-    user: { id: s.user.id, email: s.user.email, name: s.user.name, kind: s.user.kind, totpEnabled: s.user.totpEnabled },
+    user: { id: s.user.id, email: s.user.email, name: s.user.name, kind: s.user.kind, totpEnabled: s.user.totpEnabled, market: s.user.market ?? "RU" },
     sessionId: s.id, mfa: !!s.mfaVerifiedAt, isDemoSwitch: s.isDemoSwitch, memberships, org, correlationId,
   };
 }

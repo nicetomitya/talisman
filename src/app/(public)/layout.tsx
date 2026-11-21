@@ -7,7 +7,7 @@ export default async function PublicLayout({ children }: { children: React.React
     <div className="flex min-h-screen flex-col">
       <header className="border-b border-line bg-white">
         <nav aria-label="Основное меню" className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-3">
-          <Link href="/" className="text-lg font-semibold text-accent no-underline">Талисман</Link>
+          <Link href="/insurance" className="text-lg font-semibold text-accent no-underline">Талисман · страхование (legacy)</Link>
           <ul className="flex flex-wrap items-center gap-3 text-sm">
             <li><Link href="/catalog">Продукты</Link></li>
             <li><Link href="/guides">Ситуации</Link></li>

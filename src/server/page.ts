@@ -30,7 +30,7 @@ export async function requireAdminPage() {
 }
 export function homeFor(ctx: Ctx | null) {
   if (!ctx) return "/login";
-  if (ctx.user.kind === "CLIENT") return "/c";
+  if (ctx.user.kind === "CLIENT") return ctx.user.market === "US" ? "/app" : "/c";
   if (ctx.org?.orgType === "AGENCY") return "/a";
   if (ctx.org) return "/admin";
   return "/";

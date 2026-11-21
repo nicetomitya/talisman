@@ -107,6 +107,42 @@ export const MACHINES = {
     DISPUTED: [{ to: "CONFIRMED", by: ["ADMIN"], note: "спор отклонён" }, { to: "REVERSED", by: ["ADMIN"], note: "спор признан: сторно отдельной записью" }],
     RECEIVED: [], REVERSED: [],
   },
+  // ТЗ v2: событийные контракты (только симуляция). GUEST — посетитель без аккаунта (черновик по cookie).
+  evIntent: {
+    NEEDS_CLARIFICATION: [{ to: "NEEDS_CLARIFICATION", by: ["CLIENT", "GUEST"] }, { to: "READY_FOR_REVIEW", by: ["CLIENT", "GUEST", "SYSTEM"] }, { to: "ARCHIVED", by: ["CLIENT", "GUEST"] }],
+    READY_FOR_REVIEW: [{ to: "READY_FOR_REVIEW", by: ["CLIENT", "GUEST"] }, { to: "NEEDS_CLARIFICATION", by: ["CLIENT", "GUEST"] }, { to: "CONFIRMED", by: ["CLIENT", "GUEST"], note: "только явным подтверждением человека" }, { to: "ARCHIVED", by: ["CLIENT", "GUEST"] }],
+    CONFIRMED: [{ to: "NEEDS_CLARIFICATION", by: ["CLIENT", "GUEST"], note: "изменение условий — новая версия и повторная проверка" }, { to: "READY_FOR_REVIEW", by: ["CLIENT", "GUEST"] }, { to: "ARCHIVED", by: ["CLIENT", "GUEST"] }],
+    ARCHIVED: [],
+  },
+  evMarket: {
+    OPEN: [{ to: "SUSPENDED", by: ["ADMIN"] }, { to: "CLOSED", by: ["SYSTEM", "ADMIN"] }],
+    SUSPENDED: [{ to: "OPEN", by: ["ADMIN"] }, { to: "CLOSED", by: ["SYSTEM", "ADMIN"] }],
+    CLOSED: [{ to: "RESOLVED", by: ["SYSTEM", "ADMIN"] }],
+    RESOLVED: [{ to: "SETTLED", by: ["SYSTEM"] }],
+    SETTLED: [],
+  },
+  evCompliance: {
+    SIM_ALLOWED: [{ to: "RESTRICTED", by: ["ADMIN"] }, { to: "RESEARCH_ONLY", by: ["ADMIN"] }, { to: "BLOCKED", by: ["ADMIN"] }],
+    RESTRICTED: [{ to: "SIM_ALLOWED", by: ["ADMIN"] }, { to: "RESEARCH_ONLY", by: ["ADMIN"] }, { to: "BLOCKED", by: ["ADMIN"] }],
+    RESEARCH_ONLY: [{ to: "SIM_ALLOWED", by: ["ADMIN"] }, { to: "RESTRICTED", by: ["ADMIN"] }, { to: "BLOCKED", by: ["ADMIN"] }],
+    BLOCKED: [{ to: "RESEARCH_ONLY", by: ["ADMIN"] }, { to: "RESTRICTED", by: ["ADMIN"] }],
+  },
+  // Разрешение события: недостаток данных и спор никогда не ведут к автоматической выплате.
+  evResolution: {
+    NEEDS_DATA: [{ to: "NEEDS_DATA", by: ["SYSTEM", "ADMIN"] }, { to: "PROPOSED", by: ["SYSTEM", "ADMIN"] }],
+    PROPOSED: [{ to: "DISPUTED", by: ["CLIENT"] }, { to: "CONFIRMED", by: ["ADMIN"], note: "после окна спора" }, { to: "NEEDS_DATA", by: ["SYSTEM", "ADMIN"], note: "исправленные наблюдения" }, { to: "PROPOSED", by: ["SYSTEM"] }],
+    DISPUTED: [{ to: "CONFIRMED", by: ["ADMIN"], note: "решение по спору с основанием" }, { to: "NEEDS_DATA", by: ["ADMIN"] }],
+    CONFIRMED: [],
+  },
+  evPosition: {
+    OPEN: [{ to: "SETTLED", by: ["SYSTEM"] }, { to: "VOID", by: ["ADMIN"] }],
+    SETTLED: [], VOID: [],
+  },
+  expertProfile: {
+    PENDING: [{ to: "APPROVED", by: ["ADMIN"] }, { to: "REJECTED", by: ["ADMIN"] }, { to: "PENDING", by: ["CLIENT"] }],
+    APPROVED: [{ to: "REJECTED", by: ["ADMIN"] }, { to: "PENDING", by: ["CLIENT"], note: "изменение профиля — повторная модерация" }],
+    REJECTED: [{ to: "PENDING", by: ["CLIENT"] }],
+  },
 } satisfies Record<string, Machine>;
 
 export type MachineName = keyof typeof MACHINES;

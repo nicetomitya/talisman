@@ -39,6 +39,9 @@ model User {
   isDemo           Boolean      @default(true)
   acquisitionSource String? // ORGANIC | IMPORTED_BY_AGENT | REFERRAL | PARTNER | PAID — откуда пришёл аккаунт (не меняется после первой записи)
   acquisitionOrgId  String?     @db.Uuid // агентство, чьё приглашение привело клиента (только для IMPORTED_BY_AGENT)
+  market           String       @default("RU") // RU — legacy insurance pilot; US — event risk (ТЗ v2)
+  usState          String?      // двухбуквенный код штата, заявленный пользователем (не единственный источник допуска)
+  riskTierOverride String?      // T3 и ручные понижения — только администратор
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   version          Int          @default(1)
@@ -1344,4 +1347,309 @@ model ExternalPolicy {
   updatedAt         DateTime  @updatedAt
 
   @@index([clientId])
+}
+
+// ═════════════ ТЗ v2 (22.11.2026): US Event Risk — событийные контракты, только симуляция ═════════════
+// Центральная цепочка: RiskIntent → EventDefinition → MatchAssessment(VenueMarket) → QuoteSnapshot → SimOrder/SimFill
+// → Position → OracleObservation → ResolutionRecord → SettlementRecord.
+// Деньги — целые центы, цена доли — целые центы (1..99) за выплату $1 (100 центов). Пороги — целые сотые единицы.
+// sourceKind (SIMULATED | LIVE) не теряется ни в одной записи. Реальных ордеров в этой схеме нет: PartnerOrder — P3.
+
+model RiskIntent {
+  id                 String    @id @default(uuid()) @db.Uuid
+  ownerUserId        String?   @db.Uuid
+  guestKeyHash       String?   // черновик гостя без регистрации (cookie), переносится владельцу после входа
+  rawDescription     String
+  category           String    // WEATHER_WIND | WEATHER_RAIN | WEATHER_TEMP | FLIGHT_DELAY | CONSTRUCTION_DELAY | POWER_OUTAGE | OTHER
+  placeText          String?
+  placeKey           String?   // ключ справочника мест; станция НЕ подставляется автоматически
+  stationId          String?
+  windowStartLocal   String?   // YYYY-MM-DD в часовом поясе события
+  windowEndLocal     String?
+  timezone           String?
+  startUtc           DateTime?
+  endUtc             DateTime?
+  metric             String?
+  operator           String?   // BELOW | ABOVE
+  thresholdX100      Int?
+  unit               String?
+  desiredPayoutCents Int?
+  budgetCents        Int?
+  customerType       String    @default("CONSUMER")
+  unresolved         Json      @default("[]")
+  basisRisk          Json      @default("[]")
+  manipulationRisk   Boolean   @default(false)
+  confidence         Int       @default(0) // уверенность извлечения условий (0..100), не вероятность события
+  extractorVersion   String
+  status             String    @default("NEEDS_CLARIFICATION") // NEEDS_CLARIFICATION | READY_FOR_REVIEW | CONFIRMED | ARCHIVED
+  eventDefinitionId  String?   @db.Uuid
+  executionMode      String    @default("SIMULATION")
+  version            Int       @default(1)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([ownerUserId])
+  @@index([guestKeyHash])
+}
+
+model EventDefinition {
+  id                String   @id @default(uuid()) @db.Uuid
+  canonicalKey      String
+  version           Int      @default(1)
+  templateCode      String
+  metric            String
+  operator          String
+  thresholdX100     Int
+  unit              String
+  aggregation       String
+  stationId         String
+  timezone          String
+  windowStartLocal  String
+  windowEndLocal    String
+  startUtc          DateTime
+  endUtc            DateTime
+  source            String
+  fallbackSource    String?
+  missingDataPolicy String
+  ruleHash          String
+  lifecycle         String   @default("VALIDATED") // EVENT_DRAFT | VALIDATED | COMPLIANCE_REVIEW | MAPPED_TO_EXISTING_MARKET | UNAVAILABLE | REJECTED
+  manipulationRisk  Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@unique([canonicalKey, version])
+}
+
+model EventTemplate {
+  code                String   @id // WIND_LOW | RAIN_HIGH | TEMP_HIGH | CONSTRUCTION_DELAY
+  version             Int
+  category            String
+  title               String
+  outcomeYes          String
+  outcomeNo           String
+  metric              String
+  operator            String
+  unit                String
+  aggregation         String
+  missingDataPolicy   String
+  disputeWindowHours  Int
+  approvalStatus      String   // SIM_APPROVED | RESEARCH_ONLY
+  liveEligible        Boolean  @default(false)
+  manipulationRisk    Boolean  @default(false)
+  updatedAt           DateTime @updatedAt
+}
+
+model VenueMarket {
+  id                String   @id @default(uuid()) @db.Uuid
+  venue             String   // MOCK_VENUE | READONLY:<имя>
+  venueMarketId     String
+  sourceKind        String   @default("SIMULATED") // SIMULATED | LIVE
+  title             String
+  templateCode      String
+  terms             Json     // metric, operator, thresholdX100, unit, aggregation, stationId, windowStartLocal, windowEndLocal, timezone, source, fallbackSource
+  termsHash         String
+  termsVersion      Int      @default(1)
+  currency          String   @default("USD")
+  unitPayoutCents   Int      @default(100)
+  status            String   @default("OPEN") // OPEN | SUSPENDED | CLOSED | RESOLVED | SETTLED
+  complianceStatus  String   @default("SIM_ALLOWED") // SIM_ALLOWED | RESEARCH_ONLY | BLOCKED
+  regulatoryNote    String
+  eventRootKey      String   // агрегирование лимитов по связанному событию
+  objectKey         String?  // общий объект (дом, стройка) — cluster risk
+  manipulationRisk  Boolean  @default(false)
+  tradingCloseUtc   DateTime
+  legalLink         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  version           Int      @default(1)
+
+  @@unique([venue, venueMarketId])
+  @@index([templateCode])
+}
+
+model QuoteSnapshot {
+  id          String   @id @default(uuid()) @db.Uuid
+  marketId    String   @db.Uuid
+  source      String
+  sourceKind  String   @default("SIMULATED")
+  yesAsks     Json     // [[priceCents, units], …] по возрастанию цены
+  noAsks      Json
+  termsHash   String
+  takenAt     DateTime
+  staleAt     DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([marketId, takenAt])
+}
+
+model MatchAssessment {
+  id            String   @id @default(uuid()) @db.Uuid
+  riskIntentId  String   @db.Uuid
+  marketId      String?  @db.Uuid
+  exactness     String   // EXACT | PARTIAL | NONE
+  mismatchTags  Json     @default("[]")
+  explanation   String
+  matchVersion  String
+  termsHash     String?
+  modelVersion  String
+  sourceRefs    Json     @default("[]")
+  confidence    Int
+  createdAt     DateTime @default(now())
+
+  @@index([riskIntentId])
+}
+
+model SimOrder {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @db.Uuid
+  marketId           String   @db.Uuid
+  riskIntentId       String?  @db.Uuid
+  side               String   // YES | NO
+  requestedUnits     Int
+  filledUnits        Int
+  costCents          Int
+  feeCents           Int
+  quoteSnapshotId    String   @db.Uuid
+  termsHash          String
+  status             String   // FILLED | PARTIALLY_FILLED | REJECTED
+  simulation         Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  fills SimFill[]
+  @@index([userId])
+}
+
+model SimFill {
+  id         String   @id @default(uuid()) @db.Uuid
+  orderId    String   @db.Uuid
+  order      SimOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  priceCents Int
+  units      Int
+  createdAt  DateTime @default(now())
+}
+
+/** Лот бумажной позиции: одна запись на исполненный SimOrder (лимиты агрегируются по eventRootKey). */
+model Position {
+  id             String   @id @default(uuid()) @db.Uuid
+  orderId        String   @unique @db.Uuid
+  userId         String   @db.Uuid
+  marketId       String   @db.Uuid
+  side           String
+  units          Int
+  costCents      Int
+  feeCents       Int
+  sourceKind     String   @default("SIMULATED")
+  state          String   @default("OPEN") // OPEN | RESOLVED | SETTLED | VOID
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  version        Int      @default(1)
+
+  @@index([userId])
+  @@index([marketId])
+}
+
+model OracleObservation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  marketId           String   @db.Uuid
+  sourceId           String
+  isFallback         Boolean  @default(false)
+  metric             String
+  valueX100          Int?     // null — данных нет (не трактуется как ноль)
+  sourceTimestamp    DateTime
+  retrievalTimestamp DateTime
+  evidenceHash       String
+  sourceKind         String   @default("SIMULATED")
+
+  @@unique([marketId, sourceId, sourceTimestamp])
+}
+
+model ResolutionRecord {
+  id               String    @id @default(uuid()) @db.Uuid
+  marketId         String    @unique @db.Uuid
+  outcome          String?   // YES | NO; null — пока не определён
+  status           String    // NEEDS_DATA | PROPOSED | DISPUTED | CONFIRMED
+  evidence         Json
+  sourceKind       String    @default("SIMULATED")
+  disputeDeadline  DateTime?
+  disputeReason    String?
+  confirmedAt      DateTime?
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model SettlementRecord {
+  id               String   @id @default(uuid()) @db.Uuid
+  positionId       String   @unique @db.Uuid
+  partnerRef       String   // SIMULATED:<resolutionId>
+  grossPayoutCents Int
+  costCents        Int
+  feesCents        Int
+  netCents         Int
+  currency         String   @default("USD")
+  sourceKind       String   @default("SIMULATED")
+  finalAt          DateTime
+}
+
+model ConflictDeclaration {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  objectKey    String
+  relationship String    // NONE | EMPLOYEE | CONTRACTOR | INSPECTOR | AFFILIATE | OTHER
+  detail       String?
+  restriction  String    // ALLOWED | MANUAL_REVIEW | BLOCKED
+  assessedBy   String?   @db.Uuid
+  assessedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@unique([userId, objectKey])
+}
+
+model ExpertProfile {
+  id                       String   @id @default(uuid()) @db.Uuid
+  userId                   String   @unique @db.Uuid
+  displayName              String
+  tags                     Json     @default("[]")
+  credentials              String
+  disclosures              String
+  conflicts                String?
+  moderationStatus         String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  liquidityProviderStatus  String   @default("NONE")    // NONE | APPROVED — только администратор, только для симуляции
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+/** Прогноз эксперта неизменяем: правка — новая запись с supersedesId; после закрытия торгов новые версии запрещены. */
+model ExpertForecast {
+  id            String   @id @default(uuid()) @db.Uuid
+  expertUserId  String   @db.Uuid
+  marketId      String   @db.Uuid
+  probabilityBp Int      // вероятность события в базисных пунктах 0..10000
+  method        String
+  note          String?
+  version       Int
+  supersedesId  String?  @db.Uuid
+  createdAt     DateTime @default(now())
+
+  @@unique([expertUserId, marketId, version])
+}
+
+model DemandSignal {
+  id           String   @id @default(uuid()) @db.Uuid
+  riskIntentId String   @db.Uuid
+  userId       String?  @db.Uuid
+  kind         String   // WATCH | WAITLIST | SUGGEST_SPEC
+  note         String?
+  createdAt    DateTime @default(now())
+
+  @@unique([riskIntentId, kind])
+}
+
+model ComplianceReview {
+  id          String   @id @default(uuid()) @db.Uuid
+  marketId    String   @db.Uuid
+  fromStatus  String
+  toStatus    String
+  reason      String
+  reviewerId  String   @db.Uuid
+  createdAt   DateTime @default(now())
 }

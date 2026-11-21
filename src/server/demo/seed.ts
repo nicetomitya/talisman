@@ -5,6 +5,7 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 import { db } from "../db";
 import { hashPassword, randomToken, sha256 } from "../auth/crypto";
+import { seedUs } from "./seed-us";
 import { buildCtx, type Ctx } from "../access";
 import { setNow, resetClock, now } from "../clock";
 import { FORM_SCHEMAS } from "../domain/forms";
@@ -338,6 +339,8 @@ export async function seed(opts: { log?: (s: string) => void; scenarioData?: boo
   await db.demoMail.create({ data: { userId: anna.id, toEmail: "anna@client.test", subject: "Приглашение от агентства «Мост» (письмо агента)", body: annaInv.text.replace(process.env.APP_URL ?? "", "") } });
   await addExternalPolicy(cAnna, { category: "OSAGO", insurerName: "Другая страховая", number: "AAA-0007777", objectTitle: "Kia K5 2022", endsAt: await tomorrow(25) });
   log("CRM агентств и внешние полисы созданы");
+
+  await seedUs(pw, log);
 
   await db.session.deleteMany({ where: { isDemoSwitch: true, expiresAt: { lt: new Date(Date.now() + 2 * 3600_000) } } });
   log("Сид завершён");
