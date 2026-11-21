@@ -5,12 +5,12 @@ const assert = require("node:assert/strict");
 const { BASE, launch, as, assertNoHScroll } = require("./helpers.cjs");
 
 const ROLES = {
-  "anna@client.test": ["/c", "/c/requests", "/c/requests/new", "/c/policies", "/c/claims", "/c/messages", "/c/documents", "/c/payments", "/c/notifications", "/c/settings", "/c/objects", "/c/mail"],
-  "owner@nadezhny.test": ["/a", "/a/deals", "/a/claims", "/a/messages", "/a/automation", "/a/products", "/a/rating", "/a/earnings", "/a/subscription", "/a/team", "/a/settings"],
-  "admin1@talisman.test": ["/admin", "/admin/exceptions", "/admin/orgs", "/admin/catalog", "/admin/requests", "/admin/events", "/admin/claims", "/admin/payments", "/admin/billing", "/admin/documents", "/admin/reviews", "/admin/approvals", "/admin/audit", "/admin/integrations", "/demo"],
+  "anna@client.test": ["/c", "/c/requests", "/c/requests/new", "/c/policies", "/c/claims", "/c/messages", "/c/documents", "/c/payments", "/c/notifications", "/c/settings", "/c/objects", "/c/mail", "/c/agents", "/c/claims/new"],
+  "owner@nadezhny.test": ["/a", "/a/deals", "/a/claims", "/a/messages", "/a/automation", "/a/products", "/a/rating", "/a/earnings", "/a/subscription", "/a/team", "/a/settings", "/a/crm"],
+  "admin1@talisman.test": ["/admin", "/admin/exceptions", "/admin/orgs", "/admin/catalog", "/admin/requests", "/admin/events", "/admin/claims", "/admin/payments", "/admin/billing", "/admin/funnel", "/admin/documents", "/admin/reviews", "/admin/approvals", "/admin/audit", "/admin/integrations", "/demo"],
   "rep@severshield.test": ["/admin", "/admin/catalog", "/admin/claims", "/admin/events"],
 };
-const PUBLIC = ["/", "/catalog", "/products/RAIN01", "/products/KASKO_SEV", "/pricing", "/help", "/legal", "/login", "/register", "/reset"];
+const PUBLIC = ["/", "/catalog", "/products/RAIN01", "/products/KASKO_SEV", "/pricing", "/help", "/legal", "/login", "/register", "/reset", "/guides", "/guides/wedding-rain", "/guides/flat-flood"];
 
 async function check(page, path, errors) {
   const r = await page.goto(BASE + path, { waitUntil: "networkidle" });

@@ -4,6 +4,9 @@ import { db } from "@/server/db";
 import { now } from "@/server/clock";
 import { coverageState } from "@/server/domain/policies";
 import { Card, Empty, Money, PageTitle, Status, fmtDate } from "@/components/ui";
+import { HomeIntake } from "@/components/cabinet";
+import { CATEGORIES } from "@/server/domain/crm";
+import { label } from "@/server/domain/labels";
 
 export default async function ClientHome() {
   const ctx = await requireClientPage();
@@ -15,15 +18,22 @@ export default async function ClientHome() {
     db.claim.findMany({ where: { clientId: ctx.user.id, status: { in: ["DRAFT", "NEEDS_INFO", "DECISION_PREPARED"] } } }),
     db.notification.findMany({ where: { userId: ctx.user.id, readAt: null }, orderBy: { createdAt: "desc" }, take: 5 }),
   ]);
+  const [external, pendingLinks] = await Promise.all([
+    db.externalPolicy.findMany({ where: { clientId: ctx.user.id, archivedAt: null }, orderBy: { endsAt: "asc" } }),
+    db.crmContact.count({ where: { linkedUserId: ctx.user.id, linkState: "REGISTERED" } }),
+  ]);
   const todo = [
     ...reqs.filter((r) => r.status === "NEEDS_INFO" || r.status === "DRAFT").map((r) => ({ href: `/c/requests/${r.id}`, text: `${r.title}: ${r.status === "NEEDS_INFO" ? "дополните анкету" : "черновик не опубликован"}` })),
     ...reqs.filter((r) => r.status === "SELECTION").map((r) => ({ href: `/c/requests/${r.id}`, text: `${r.title}: предложения собраны, выберите` })),
     ...checkouts.map((c) => ({ href: `/c/checkouts/${c.id}`, text: `Оформление: ${c.status === "PAYMENT" ? "ожидает оплаты" : c.status === "AWAITING_CARRIER" ? "ждём подтверждения страховщика" : "продолжите оформление"}` })),
     ...claims.map((c) => ({ href: `/c/claims/${c.id}`, text: `Обращение ${c.number}: ${c.status === "NEEDS_INFO" ? "нужны сведения" : c.status === "DRAFT" ? "не отправлено" : "решение подготовлено"}` })),
+    ...(pendingLinks ? [{ href: "/c/agents", text: `Приглашение агентства: подтвердите или отклоните (${pendingLinks})` }] : []),
+    ...external.filter((p) => p.endsAt && p.endsAt > t && p.endsAt.getTime() - t.getTime() < 30 * 86400_000).map((p) => ({ href: "/c/policies", text: `${CATEGORIES[p.category]}, ${p.insurerName}: заканчивается ${fmtDate(p.endsAt)} — продлить или сравнить рынок` })),
   ];
   return (
     <>
-      <PageTitle title={`Здравствуйте, ${ctx.user.name.split(" ")[0]}`} actions={<Link className="btn btn-primary no-underline" href="/c/requests/new">Новая заявка</Link>} />
+      <PageTitle title={`Здравствуйте, ${ctx.user.name.split(" ")[0]}`} />
+      <div className="mb-4"><HomeIntake /></div>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Что нужно сделать">{todo.length ? <ul className="space-y-2 text-sm">{todo.map((x, i) => <li key={i}>→ <Link href={x.href}>{x.text}</Link></li>)}</ul> : <p className="text-sm text-muted">Сейчас от вас ничего не требуется.</p>}</Card>
         <Card title="Новые уведомления" actions={<Link href="/c/notifications" className="text-sm">Все</Link>}>{notes.length ? <ul className="space-y-2 text-sm">{notes.map((n) => <li key={n.id}><strong>{n.title}</strong> · {n.body} {n.link && <Link href={n.link}>Открыть</Link>}</li>)}</ul> : <p className="text-sm text-muted">Нет новых.</p>}</Card>
@@ -32,6 +42,7 @@ export default async function ClientHome() {
             <div className="tbl-wrap"><table className="tbl tbl-stack"><thead><tr><th>Полис</th><th>Объект</th><th>Договор</th><th>Защита</th><th>Период</th><th>Премия</th></tr></thead><tbody>
               {policies.map((p) => <tr key={p.id}><td data-label="Полис"><Link href={`/c/policies/${p.id}`}>{p.number}</Link></td><td data-label="Объект">{p.objectTitle}</td><td data-label="Договор"><Status group="contract" value={p.contractStatus} /></td><td data-label="Защита"><Status group="coverage" value={coverageState(p, t)} /></td><td data-label="Период">{fmtDate(p.startsAt)} – {fmtDate(p.endsAt)}</td><td data-label="Премия"><Money kop={p.premiumKop} /></td></tr>)}
             </tbody></table></div>}
+          {external.length > 0 && <><h3 className="mt-4 font-semibold">Оформлены вне платформы</h3><ul className="mt-1 space-y-1 text-sm">{external.map((p) => <li key={p.id}>{CATEGORIES[p.category]}, {p.insurerName} · {p.objectTitle} · до {fmtDate(p.endsAt)} · <span className="text-muted">{label("extVerification", p.verification)}</span></li>)}</ul></>}
         </Card>
       </div>
     </>

@@ -5,7 +5,9 @@ export function middleware(req: NextRequest) {
   const prod = process.env.APP_MODE === "production";
   const p = req.nextUrl.pathname;
   if (prod && (p.startsWith("/demo") || p.startsWith("/api/demo"))) return new NextResponse("Not found", { status: 404 });
-  const res = NextResponse.next();
+  const headers = new Headers(req.headers);
+  headers.set("x-pathname", p);
+  const res = NextResponse.next({ request: { headers } });
   if (!req.cookies.get("tcsrf")) {
     res.cookies.set("tcsrf", crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""), { httpOnly: false, sameSite: "lax", secure: req.nextUrl.protocol === "https:", path: "/" });
   }

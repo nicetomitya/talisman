@@ -37,6 +37,11 @@ model User {
   failedLogins     Int          @default(0)
   lockedUntil      DateTime?
   isDemo           Boolean      @default(true)
+  acquisitionSource String? // ORGANIC | IMPORTED_BY_AGENT | REFERRAL | PARTNER | PAID — откуда пришёл аккаунт (не меняется после первой записи)
+  acquisitionOrgId  String?     @db.Uuid // агентство, чьё приглашение привело клиента (только для IMPORTED_BY_AGENT)
+  market           String       @default("RU") // RU — legacy insurance pilot; US — event risk (ТЗ v2)
+  usState          String?      // двухбуквенный код штата, заявленный пользователем (не единственный источник допуска)
+  riskTierOverride String?      // T3 и ручные понижения — только администратор
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   version          Int          @default(1)
@@ -330,6 +335,9 @@ model InsuranceRequest {
   directAgencyOrgId String?     @db.Uuid // заявка конкретному агентству (после отменённого матча)
   previousRequestId String?     @db.Uuid
   cancelReason    String?
+  source          String        @default("ORGANIC") // ORGANIC | IMPORTED_BY_AGENT | REFERRAL | PARTNER | PAID | EXISTING_USER
+  sourceOrgId     String?       @db.Uuid // агентство-источник клиента (для IMPORTED_BY_AGENT); не даёт прав на заявку
+  sourceDetail    String?       // например seo:wedding-rain, market-check:<id>
   publishedAt     DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -724,7 +732,9 @@ model Commission {
   baseKop        Int
   rateBp         Int
   amountKop      Int
-  status         String   @default("ACCRUED") // ACCRUED | CONFIRMED | RECEIVED | REVERSED
+  status         String   @default("ACCRUED") // ACCRUED | CONFIRMED | RECEIVED | REVERSED | DISPUTED
+  dealOrigin     String?  // MARKETPLACE | IMPORTED_OTHER_AGENCY | IMPORTED_SAME_AGENCY — правило начисления по происхождению сделки
+  disputeReason  String?
   termsVersion   String
   reversalOfId   String?  @db.Uuid
   note           String?
@@ -1219,4 +1229,427 @@ model EmulatorPayment {
   meta        Json     @default("{}")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// ───────────── CRM агентства (P1, дополнение ТЗ от 16.11.2026) ─────────────
+// CrmContact ≠ User: карточка существует без аккаунта; связь с аккаунтом — только после подтверждения клиентом.
+// Все записи CRM принадлежат одной организации (tenant isolation): запросы всегда с organizationId.
+
+enum CrmLinkState {
+  NOT_INVITED
+  PREPARED
+  SENT
+  REGISTERED
+  VERIFIED_LINKED
+  REVOKED
+}
+
+model CrmContact {
+  id                String       @id @default(uuid()) @db.Uuid
+  organizationId    String       @db.Uuid
+  responsibleUserId String?      @db.Uuid
+  name              String
+  phone             String?
+  email             String?
+  phoneNorm         String?
+  emailNorm         String?
+  provenance        String       @default("MANUAL") // MANUAL | IMPORT | MARKETPLACE
+  legalBasis        String // основание обработки: EXISTING_CONTRACT | CLIENT_CONSENT | OTHER_DOCUMENTED
+  notes             String?      // внутренние заметки агентства: никогда не показываются клиенту и другим агентствам
+  importBatchId     String?      @db.Uuid
+  linkState         CrmLinkState @default(NOT_INVITED)
+  linkedUserId      String?      @db.Uuid
+  inviteTokenHash   String?      @unique
+  inviteExpiresAt   DateTime?
+  invitePreparedAt  DateTime?
+  inviteSentAt      DateTime?
+  inviteChannel     String?
+  registeredAt      DateTime?
+  linkedAt          DateTime?
+  revokedAt         DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  version           Int          @default(1)
+
+  policies     CrmPolicy[]
+  interactions CrmInteraction[]
+  @@unique([organizationId, emailNorm])
+  @@unique([organizationId, phoneNorm])
+  @@unique([organizationId, linkedUserId])
+  @@index([organizationId, linkState])
+}
+
+/** Известный агентству полис контакта (оформлен вне платформы или до неё). Не создаёт начислений. */
+model CrmPolicy {
+  id             String     @id @default(uuid()) @db.Uuid
+  organizationId String     @db.Uuid
+  contactId      String     @db.Uuid
+  contact        CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  category       String // KASKO | OSAGO | PROPERTY | TRAVEL | HEALTH | EVENT | OTHER
+  insurerName    String
+  number         String?
+  objectTitle    String
+  startsAt       DateTime?
+  endsAt         DateTime?
+  premiumKop     Int?
+  sharedAt       DateTime?  // передан клиенту в кабинет (после связывания и его подтверждения)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([organizationId, endsAt])
+}
+
+model CrmInteraction {
+  id             String     @id @default(uuid()) @db.Uuid
+  organizationId String     @db.Uuid
+  contactId      String     @db.Uuid
+  contact        CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  authorUserId   String?    @db.Uuid
+  kind           String // NOTE | CALL | MESSAGE_DRAFT | MESSAGE_SENT_MANUAL | SYSTEM
+  text           String
+  createdAt      DateTime   @default(now())
+
+  @@index([contactId, createdAt])
+}
+
+model CrmImportBatch {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  userId         String   @db.Uuid
+  fileName       String
+  legalBasis     String
+  total          Int
+  created        Int
+  duplicates     Int
+  rejected       Int
+  errors         Json     @default("[]")
+  createdAt      DateTime @default(now())
+}
+
+/** Полис клиента, оформленный вне платформы: добавлен вручную или передан агентом. Источник и проверка — отдельно. */
+model ExternalPolicy {
+  id                String    @id @default(uuid()) @db.Uuid
+  clientId          String    @db.Uuid
+  source            String // CLIENT_MANUAL | AGENT_CRM
+  sourceOrgId       String?   @db.Uuid
+  crmPolicyId       String?   @unique @db.Uuid
+  verification      String    @default("UNVERIFIED") // UNVERIFIED | AGENT_STATED | VERIFIED
+  category          String
+  insurerName       String
+  number            String?
+  objectTitle       String
+  startsAt          DateTime?
+  endsAt            DateTime?
+  premiumKop        Int?
+  reminderSentAt    DateTime?
+  archivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([clientId])
+}
+
+// ═════════════ ТЗ v2 (22.11.2026): US Event Risk — событийные контракты, только симуляция ═════════════
+// Центральная цепочка: RiskIntent → EventDefinition → MatchAssessment(VenueMarket) → QuoteSnapshot → SimOrder/SimFill
+// → Position → OracleObservation → ResolutionRecord → SettlementRecord.
+// Деньги — целые центы, цена доли — целые центы (1..99) за выплату $1 (100 центов). Пороги — целые сотые единицы.
+// sourceKind (SIMULATED | LIVE) не теряется ни в одной записи. Реальных ордеров в этой схеме нет: PartnerOrder — P3.
+
+model RiskIntent {
+  id                 String    @id @default(uuid()) @db.Uuid
+  ownerUserId        String?   @db.Uuid
+  guestKeyHash       String?   // черновик гостя без регистрации (cookie), переносится владельцу после входа
+  rawDescription     String
+  category           String    // WEATHER_WIND | WEATHER_RAIN | WEATHER_TEMP | FLIGHT_DELAY | CONSTRUCTION_DELAY | POWER_OUTAGE | OTHER
+  placeText          String?
+  placeKey           String?   // ключ справочника мест; станция НЕ подставляется автоматически
+  stationId          String?
+  windowStartLocal   String?   // YYYY-MM-DD в часовом поясе события
+  windowEndLocal     String?
+  timezone           String?
+  startUtc           DateTime?
+  endUtc             DateTime?
+  metric             String?
+  operator           String?   // BELOW | ABOVE
+  thresholdX100      Int?
+  unit               String?
+  desiredPayoutCents Int?
+  budgetCents        Int?
+  customerType       String    @default("CONSUMER")
+  unresolved         Json      @default("[]")
+  basisRisk          Json      @default("[]")
+  manipulationRisk   Boolean   @default(false)
+  confidence         Int       @default(0) // уверенность извлечения условий (0..100), не вероятность события
+  extractorVersion   String
+  status             String    @default("NEEDS_CLARIFICATION") // NEEDS_CLARIFICATION | READY_FOR_REVIEW | CONFIRMED | ARCHIVED
+  eventDefinitionId  String?   @db.Uuid
+  executionMode      String    @default("SIMULATION")
+  version            Int       @default(1)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([ownerUserId])
+  @@index([guestKeyHash])
+}
+
+model EventDefinition {
+  id                String   @id @default(uuid()) @db.Uuid
+  canonicalKey      String
+  version           Int      @default(1)
+  templateCode      String
+  metric            String
+  operator          String
+  thresholdX100     Int
+  unit              String
+  aggregation       String
+  stationId         String
+  timezone          String
+  windowStartLocal  String
+  windowEndLocal    String
+  startUtc          DateTime
+  endUtc            DateTime
+  source            String
+  fallbackSource    String?
+  missingDataPolicy String
+  ruleHash          String
+  lifecycle         String   @default("VALIDATED") // EVENT_DRAFT | VALIDATED | COMPLIANCE_REVIEW | MAPPED_TO_EXISTING_MARKET | UNAVAILABLE | REJECTED
+  manipulationRisk  Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@unique([canonicalKey, version])
+}
+
+model EventTemplate {
+  code                String   @id // WIND_LOW | RAIN_HIGH | TEMP_HIGH | CONSTRUCTION_DELAY
+  version             Int
+  category            String
+  title               String
+  outcomeYes          String
+  outcomeNo           String
+  metric              String
+  operator            String
+  unit                String
+  aggregation         String
+  missingDataPolicy   String
+  disputeWindowHours  Int
+  approvalStatus      String   // SIM_APPROVED | RESEARCH_ONLY
+  liveEligible        Boolean  @default(false)
+  manipulationRisk    Boolean  @default(false)
+  updatedAt           DateTime @updatedAt
+}
+
+model VenueMarket {
+  id                String   @id @default(uuid()) @db.Uuid
+  venue             String   // MOCK_VENUE | READONLY:<имя>
+  venueMarketId     String
+  sourceKind        String   @default("SIMULATED") // SIMULATED | LIVE
+  title             String
+  templateCode      String
+  terms             Json     // metric, operator, thresholdX100, unit, aggregation, stationId, windowStartLocal, windowEndLocal, timezone, source, fallbackSource
+  termsHash         String
+  termsVersion      Int      @default(1)
+  currency          String   @default("USD")
+  unitPayoutCents   Int      @default(100)
+  status            String   @default("OPEN") // OPEN | SUSPENDED | CLOSED | RESOLVED | SETTLED
+  complianceStatus  String   @default("SIM_ALLOWED") // SIM_ALLOWED | RESEARCH_ONLY | BLOCKED
+  regulatoryNote    String
+  eventRootKey      String   // агрегирование лимитов по связанному событию
+  objectKey         String?  // общий объект (дом, стройка) — cluster risk
+  manipulationRisk  Boolean  @default(false)
+  tradingCloseUtc   DateTime
+  legalLink         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  version           Int      @default(1)
+
+  @@unique([venue, venueMarketId])
+  @@index([templateCode])
+}
+
+model QuoteSnapshot {
+  id          String   @id @default(uuid()) @db.Uuid
+  marketId    String   @db.Uuid
+  source      String
+  sourceKind  String   @default("SIMULATED")
+  yesAsks     Json     // [[priceCents, units], …] по возрастанию цены
+  noAsks      Json
+  termsHash   String
+  takenAt     DateTime
+  staleAt     DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([marketId, takenAt])
+}
+
+model MatchAssessment {
+  id            String   @id @default(uuid()) @db.Uuid
+  riskIntentId  String   @db.Uuid
+  marketId      String?  @db.Uuid
+  exactness     String   // EXACT | PARTIAL | NONE
+  mismatchTags  Json     @default("[]")
+  explanation   String
+  matchVersion  String
+  termsHash     String?
+  modelVersion  String
+  sourceRefs    Json     @default("[]")
+  confidence    Int
+  createdAt     DateTime @default(now())
+
+  @@index([riskIntentId])
+}
+
+model SimOrder {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @db.Uuid
+  marketId           String   @db.Uuid
+  riskIntentId       String?  @db.Uuid
+  side               String   // YES | NO
+  requestedUnits     Int
+  filledUnits        Int
+  costCents          Int
+  feeCents           Int
+  quoteSnapshotId    String   @db.Uuid
+  termsHash          String
+  status             String   // FILLED | PARTIALLY_FILLED | REJECTED
+  simulation         Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  fills SimFill[]
+  @@index([userId])
+}
+
+model SimFill {
+  id         String   @id @default(uuid()) @db.Uuid
+  orderId    String   @db.Uuid
+  order      SimOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  priceCents Int
+  units      Int
+  createdAt  DateTime @default(now())
+}
+
+/** Лот бумажной позиции: одна запись на исполненный SimOrder (лимиты агрегируются по eventRootKey). */
+model Position {
+  id             String   @id @default(uuid()) @db.Uuid
+  orderId        String   @unique @db.Uuid
+  userId         String   @db.Uuid
+  marketId       String   @db.Uuid
+  side           String
+  units          Int
+  costCents      Int
+  feeCents       Int
+  sourceKind     String   @default("SIMULATED")
+  state          String   @default("OPEN") // OPEN | RESOLVED | SETTLED | VOID
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  version        Int      @default(1)
+
+  @@index([userId])
+  @@index([marketId])
+}
+
+model OracleObservation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  marketId           String   @db.Uuid
+  sourceId           String
+  isFallback         Boolean  @default(false)
+  metric             String
+  valueX100          Int?     // null — данных нет (не трактуется как ноль)
+  sourceTimestamp    DateTime
+  retrievalTimestamp DateTime
+  evidenceHash       String
+  sourceKind         String   @default("SIMULATED")
+
+  @@unique([marketId, sourceId, sourceTimestamp])
+}
+
+model ResolutionRecord {
+  id               String    @id @default(uuid()) @db.Uuid
+  marketId         String    @unique @db.Uuid
+  outcome          String?   // YES | NO; null — пока не определён
+  status           String    // NEEDS_DATA | PROPOSED | DISPUTED | CONFIRMED
+  evidence         Json
+  sourceKind       String    @default("SIMULATED")
+  disputeDeadline  DateTime?
+  disputeReason    String?
+  confirmedAt      DateTime?
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model SettlementRecord {
+  id               String   @id @default(uuid()) @db.Uuid
+  positionId       String   @unique @db.Uuid
+  partnerRef       String   // SIMULATED:<resolutionId>
+  grossPayoutCents Int
+  costCents        Int
+  feesCents        Int
+  netCents         Int
+  currency         String   @default("USD")
+  sourceKind       String   @default("SIMULATED")
+  finalAt          DateTime
+}
+
+model ConflictDeclaration {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  objectKey    String
+  relationship String    // NONE | EMPLOYEE | CONTRACTOR | INSPECTOR | AFFILIATE | OTHER
+  detail       String?
+  restriction  String    // ALLOWED | MANUAL_REVIEW | BLOCKED
+  assessedBy   String?   @db.Uuid
+  assessedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@unique([userId, objectKey])
+}
+
+model ExpertProfile {
+  id                       String   @id @default(uuid()) @db.Uuid
+  userId                   String   @unique @db.Uuid
+  displayName              String
+  tags                     Json     @default("[]")
+  credentials              String
+  disclosures              String
+  conflicts                String?
+  moderationStatus         String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  liquidityProviderStatus  String   @default("NONE")    // NONE | APPROVED — только администратор, только для симуляции
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+/** Прогноз эксперта неизменяем: правка — новая запись с supersedesId; после закрытия торгов новые версии запрещены. */
+model ExpertForecast {
+  id            String   @id @default(uuid()) @db.Uuid
+  expertUserId  String   @db.Uuid
+  marketId      String   @db.Uuid
+  probabilityBp Int      // вероятность события в базисных пунктах 0..10000
+  method        String
+  note          String?
+  version       Int
+  supersedesId  String?  @db.Uuid
+  createdAt     DateTime @default(now())
+
+  @@unique([expertUserId, marketId, version])
+}
+
+model DemandSignal {
+  id           String   @id @default(uuid()) @db.Uuid
+  riskIntentId String   @db.Uuid
+  userId       String?  @db.Uuid
+  kind         String   // WATCH | WAITLIST | SUGGEST_SPEC
+  note         String?
+  createdAt    DateTime @default(now())
+
+  @@unique([riskIntentId, kind])
+}
+
+model ComplianceReview {
+  id          String   @id @default(uuid()) @db.Uuid
+  marketId    String   @db.Uuid
+  fromStatus  String
+  toStatus    String
+  reason      String
+  reviewerId  String   @db.Uuid
+  createdAt   DateTime @default(now())
 }

@@ -14,7 +14,7 @@ export async function AppShell({ ctx, nav, area, children }: { ctx: Ctx; nav: { 
       <header className="border-b border-line bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2">
           <div className="flex items-center gap-3">
-            <Link href="/" className="font-semibold text-accent no-underline">Талисман</Link>
+            <Link href="/insurance" className="font-semibold text-accent no-underline">Талисман</Link>
             <span className="rounded bg-bg px-2 py-0.5 text-xs text-muted">{area}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">

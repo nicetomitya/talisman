@@ -41,7 +41,19 @@ export async function getOwnRequest(tx: Tx | typeof db, ctx: Ctx, id: string) {
   return r;
 }
 
-export async function createRequest(ctx: Ctx, i: { productCode: string; freeText?: string; savedObjectId?: string }) {
+/**
+ * Источник заявки фиксируется отдельно от источника клиента (ТЗ 16.11, п. 9.1):
+ * EXISTING_USER — у клиента уже были опубликованные заявки; иначе — источник аккаунта (ORGANIC, IMPORTED_BY_AGENT…).
+ * sourceOrgId — агентство, пригласившее клиента; нужно только для правила начисления, прав на заявку не даёт.
+ */
+export async function requestSource(tx: Tx | typeof db, clientId: string, sourceDetail?: string | null) {
+  const u = await tx.user.findUniqueOrThrow({ where: { id: clientId }, select: { acquisitionSource: true, acquisitionOrgId: true } });
+  const published = await tx.insuranceRequest.count({ where: { clientId, currentVersion: { gt: 0 } } });
+  const source = published > 0 ? "EXISTING_USER" : (u.acquisitionSource ?? "ORGANIC");
+  return { source, sourceOrgId: u.acquisitionSource === "IMPORTED_BY_AGENT" ? u.acquisitionOrgId : null, sourceDetail: sourceDetail?.slice(0, 120) ?? null };
+}
+
+export async function createRequest(ctx: Ctx, i: { productCode: string; freeText?: string; savedObjectId?: string; sourceDetail?: string | null }) {
   await rateLimit(`request:create:${ctx.user.id}`, 20, 3600);
   const kind = KIND[i.productCode];
   if (!kind) throw err("VALIDATION", "Продукт недоступен в первой версии");
@@ -56,8 +68,9 @@ export async function createRequest(ctx: Ctx, i: { productCode: string; freeText
     for (const k of Object.keys(obj.data as object)) confirmed[k] = { status: "NEEDS_RECHECK", source: "saved_object" };
   }
   const r = await db.$transaction(async (tx) => {
-    const r = await tx.insuranceRequest.create({ data: { clientId: ctx.user.id, productCode: i.productCode, kind, title: PRODUCT_TITLES[i.productCode], freeText: i.freeText?.slice(0, 2000), formSchemaId: schemaRow.id, data, confirmed } });
-    await audit(tx, actor(ctx), "request.create", "InsuranceRequest", r.id, { after: { productCode: i.productCode } });
+    const src = await requestSource(tx, ctx.user.id, i.sourceDetail);
+    const r = await tx.insuranceRequest.create({ data: { clientId: ctx.user.id, productCode: i.productCode, kind, title: PRODUCT_TITLES[i.productCode], freeText: i.freeText?.slice(0, 2000), formSchemaId: schemaRow.id, data, confirmed, ...src } });
+    await audit(tx, actor(ctx), "request.create", "InsuranceRequest", r.id, { after: { productCode: i.productCode, source: src.source } });
     return r;
   });
   return r;
@@ -163,7 +176,8 @@ export async function repeatRequest(ctx: Ctx, fromId: string, i: { toSameAgency:
   const confirmed: Record<string, any> = {};
   for (const k of Object.keys(old.data as object)) confirmed[k] = { status: "NEEDS_RECHECK", source: "previous_request" };
   return db.$transaction(async (tx) => {
-    const r = await tx.insuranceRequest.create({ data: { clientId: ctx.user.id, productCode: old.productCode, kind: old.kind, title: old.title, formSchemaId: old.formSchemaId, data: old.data as any, confirmed, directAgencyOrgId, previousRequestId: old.id } });
+    const src = await requestSource(tx, ctx.user.id, i.toSameAgency ? "repeat:same-agency" : "repeat:all");
+    const r = await tx.insuranceRequest.create({ data: { clientId: ctx.user.id, productCode: old.productCode, kind: old.kind, title: old.title, formSchemaId: old.formSchemaId, data: old.data as any, confirmed, directAgencyOrgId, previousRequestId: old.id, ...src } });
     await audit(tx, actor(ctx), "request.repeat", "InsuranceRequest", r.id, { after: { from: old.id, directAgencyOrgId } });
     return r;
   });
@@ -233,6 +247,7 @@ export async function publishRequest(ctx: Ctx, id: string, version: number) {
     assertTransition("request", r.status, "OPEN", "CLIENT");
     const newVersion = r.currentVersion + 1;
     const snapshot = essentialSnapshot(schema, data);
+    await assertNoActiveDuplicate(tx, r, data);
     await tx.requestVersion.create({ data: { requestId: r.id, version: newVersion, data, schemaSnapshot: schema as any, publicData: publicView(schema, data), fingerprint: fingerprintOf(snapshot) } });
     await tx.insuranceRequest.update({ where: { id: r.id }, data: { status: "OPEN", currentVersion: newVersion, publishedAt: t, territory: data.region ?? data.city ?? null, version: { increment: 1 } } });
     await audit(tx, actor(ctx), "request.publish", "InsuranceRequest", r.id, { after: { version: newVersion } });
@@ -258,6 +273,27 @@ export async function publishRequest(ctx: Ctx, id: string, version: number) {
     return { published: true as const, version: newVersion, auctionId: auction.id };
   });
   return result;
+}
+
+/**
+ * Защита от спама без платного поиска (ТЗ 16.11, п. 7.2): одна активная заявка на один риск и период —
+ * тот же продукт, тот же объект (VIN, адрес, бронирование) и та же дата начала.
+ */
+const OBJECT_KEYS: Record<string, string[]> = { KASKO: ["car_vin"], PROPERTY: ["city", "address"], RAIN01: ["booking_ref"], WIND01: ["booking_ref"] };
+export function riskKey(productCode: string, data: Record<string, any>): string | null {
+  const keys = OBJECT_KEYS[productCode] ?? [];
+  const parts = keys.map((k) => String(data[k] ?? "").trim().toLowerCase().replace(/\s+/g, " "));
+  if (!parts.length || parts.some((p) => !p)) return null;
+  return [productCode, ...parts, String(data.start_date ?? data.event_date ?? "")].join("|");
+}
+async function assertNoActiveDuplicate(tx: Tx, r: { id: string; clientId: string; productCode: string }, data: Record<string, any>) {
+  const key = riskKey(r.productCode, data);
+  if (!key) return;
+  const active = await tx.insuranceRequest.findMany({ where: { clientId: r.clientId, productCode: r.productCode, id: { not: r.id }, status: { in: ["OPEN", "SELECTION", "CHECKOUT"] } }, select: { id: true, currentVersion: true } });
+  for (const a of active) {
+    const v = await tx.requestVersion.findUnique({ where: { requestId_version: { requestId: a.id, version: a.currentVersion } }, select: { data: true } });
+    if (v && riskKey(r.productCode, v.data as any) === key) throw err("CONFLICT", "По этому объекту и периоду уже идёт подбор", { requestId: a.id, nextAction: "Откройте действующую заявку или отмените её, чтобы опубликовать новую" });
+  }
 }
 
 export async function cancelRequest(ctx: Ctx, id: string) {

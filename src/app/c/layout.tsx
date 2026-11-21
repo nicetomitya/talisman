@@ -7,7 +7,7 @@ export default async function ClientLayout({ children }: { children: React.React
   const unreadMsgs = await db.message.count({ where: { conversation: { clientId: ctx.user.id }, readByClientAt: null, authorRole: { not: "CLIENT" } } });
   return (
     <AppShell ctx={ctx} area="Кабинет клиента" nav={[
-      { href: "/c", label: "Обзор" }, { href: "/c/requests", label: "Заявки" }, { href: "/c/policies", label: "Полисы" }, { href: "/c/claims", label: "Обращения" },
+      { href: "/c", label: "Обзор" }, { href: "/c/requests", label: "Заявки" }, { href: "/c/policies", label: "Полисы" }, { href: "/c/claims", label: "Обращения" }, { href: "/c/agents", label: "Мои агенты" },
       { href: "/c/messages", label: "Сообщения", badge: unreadMsgs }, { href: "/c/documents", label: "Документы" }, { href: "/c/payments", label: "Платежи" },
       { href: "/c/objects", label: "Объекты" }, { href: "/c/settings", label: "Настройки" }, { href: "/c/mail", label: "Демопочта" },
     ]}>{children}</AppShell>
